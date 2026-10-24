@@ -1,10 +1,11 @@
-"""Bounded, vendor-neutral wire models for the in-chat songwriting plugin."""
+"""Bounded wire models for the songwriting lanes: instruments, takes and reviewed edits."""
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_DURATION_MS = 300_000
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
+HIT_MS = 100
 
 
 class Wire(BaseModel):
@@ -65,54 +66,84 @@ class Note(Wire):
         return self
 
 
-class SongTrack(Wire):
-    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
-    name: str = Field(min_length=1, max_length=120)
-    kind: Literal["midi", "audio"]
-    origin: Literal["recorded", "generated", "imported", "separated"]
-    protected: bool
-    instrument: Literal["piano", "bass", "drums", "pad", "lead"] | None = None
-    notes: list[Note] | None = Field(default=None, max_length=5000)
-    path: str | None = Field(default=None, max_length=2048)
-    durationMs: float | None = Field(default=None, gt=0, le=MAX_DURATION_MS)
-    muted: bool = False
+LANE_ID = r"^[a-zA-Z0-9_-]{1,80}$"
+MAX_LANES = 16  # One MIDI channel per lane; drum lanes share the GM drum channel.
+MAX_NOTES = 10_000
+
+
+class Instrument(Wire):
+    """A General MIDI program, or the drum kit when ``drums`` is set."""
+    program: int = Field(ge=0, le=127)
+    drums: bool = False
+
+
+class LaneChange(Wire):
+    """One reviewed edit: rewrite an existing lane, add a new one, or remove one."""
+    laneId: str = Field(pattern=LANE_ID)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    instrument: Instrument | None = None
+    notes: list[Note] | None = Field(default=None, max_length=MAX_NOTES)
+    remove: bool = False
 
     @model_validator(mode="after")
-    def has_source(self):
-        if self.kind == "midi" and self.notes is None:
-            raise ValueError("MIDI tracks require symbolic notes")
-        if self.kind == "audio" and (not self.path or self.notes is not None):
-            raise ValueError("Audio tracks require a path, not symbolic notes")
+    def says_something(self):
+        if self.remove and (self.notes is not None or self.instrument or self.name):
+            raise ValueError("A removal carries no other changes")
+        if not self.remove and self.notes is None and self.instrument is None and self.name is None:
+            raise ValueError("A lane change needs notes, an instrument or a name")
         return self
 
 
-class AudioRequest(Wire):
+class AddLaneRequest(Wire):
+    name: str = Field(min_length=1, max_length=80)
+    instrument: Instrument
+    source: Literal["midi", "voice", "audio"]
+
+
+class UpdateLaneRequest(Wire):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    instrument: Instrument | None = None
+    muted: bool | None = None
+    solo: bool | None = None
+    volume: float | None = Field(default=None, ge=0, le=1)
+    play: Literal["notes", "audio"] | None = None
+
+
+class MidiTakeRequest(Wire):
+    take: MidiTake
+    # Where the take starts on the song timeline, so overdubs line up with the other lanes.
+    startMs: float = Field(default=0, ge=0, le=MAX_DURATION_MS)
+
+
+class AudioTakeRequest(Wire):
     name: str = Field(min_length=1, max_length=120)
     mime: str = Field(min_length=1, max_length=128)
     data: str = Field(min_length=1, max_length=(MAX_AUDIO_BYTES + 2) // 3 * 4)
+    durationMs: float = Field(gt=0, le=MAX_DURATION_MS)
+    startMs: float = Field(default=0, ge=0, le=MAX_DURATION_MS)
+    # Where in the file the song-aligned audio begins: a take records through the count-in.
+    offsetMs: float = Field(default=0, ge=0, le=MAX_DURATION_MS)
+    # Pitch-tracked notes from Desktop; the recording itself stays the immutable source.
+    notes: list[Note] | None = Field(default=None, max_length=MAX_NOTES)
 
 
-class RenderRequest(Wire):
-    trackIds: list[str] | None = Field(default=None, max_length=32)
+class SongSettingsRequest(Wire):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    tempo: int | None = Field(default=None, ge=40, le=240)
+    selectedLaneId: str | None = Field(default=None, pattern=LANE_ID)
 
 
 class ProposalRequest(Wire):
-    baseRevision: int = Field(ge=0)
     brief: str = Field(min_length=1, max_length=8000)
-    tracks: list[SongTrack] = Field(min_length=1, max_length=32)
+    changes: list[LaneChange] = Field(min_length=1, max_length=MAX_LANES)
 
 
 class ApplyRequest(Wire):
     proposalId: str = Field(pattern=r"^[a-f0-9]{32}$")
-    baseRevision: int = Field(ge=0)
 
 
 class RejectRequest(Wire):
     proposalId: str = Field(pattern=r"^[a-f0-9]{32}$")
-
-
-class UndoRequest(Wire):
-    baseRevision: int = Field(ge=0)
 
 
 def symbolic_notes(take: MidiTake) -> list[dict]:
@@ -121,9 +152,10 @@ def symbolic_notes(take: MidiTake) -> list[dict]:
 
     def finish(key, at):
         start, velocity = active.pop(key)
-        if at > start:
-            notes.append({"startMs": start, "durationMs": at - start,
-                          "note": key[1], "velocity": velocity})
+        # Drum pads send note-off in the same instant as note-on; a hit still has a sound.
+        duration = min(at - start if at > start else HIT_MS, MAX_DURATION_MS - start)
+        if duration > 0:
+            notes.append({"startMs": start, "durationMs": duration, "note": key[1], "velocity": velocity})
         released.pop(key, None)
 
     for event in take.events:

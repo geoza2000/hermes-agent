@@ -1,6 +1,6 @@
 name: songwriting
-version: "0.1.0"
-description: "In-chat capture-to-song collaboration with protected local sources, reviewed editable scores and offline sequenced synthesis. No external music service or additional LLM client."
+version: "0.2.0"
+description: "Songwriting lanes beside the chat: record MIDI, voice or audio per lane, play them with sampled General MIDI instruments, and let Hermes add or rework lanes as reviewed suggestions."
 author: "George / Hermes Agent"
 provides_tools:
   - songwriting

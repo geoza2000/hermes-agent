@@ -7,8 +7,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.responses import JSONResponse
 
-from .models import ApplyRequest, AudioRequest, MidiTake, ProposalRequest, RejectRequest, RenderRequest, UndoRequest
-from . import audio, revisions
+from .models import (AddLaneRequest, ApplyRequest, AudioTakeRequest, MidiTakeRequest, RejectRequest,
+                     SongSettingsRequest, UpdateLaneRequest)
+from . import lanes, soundfont
 from .storage import SongError, SongStore
 
 class BoundedRoute(APIRoute):
@@ -44,56 +45,84 @@ class BoundedRoute(APIRoute):
 router = APIRouter(route_class=BoundedRoute)
 
 
-def run(session_id, action, *args):
+def run(action, *args):
     try:
-        store = SongStore(session_id)
-        if action in ("propose", "apply", "reject", "undo"):
-            return getattr(revisions, action)(store, *args)
-        if action in ("upload", "render"):
-            return getattr(audio, action)(store, *args)
-        return getattr(store, action)(*args)
+        return action(*args)
     except SongError as exc:
         raise HTTPException(exc.status, exc.message) from exc
     except (OSError, sqlite3.Error, JSONDecodeError) as exc:
-        raise HTTPException(503, "Songwriting storage is unavailable; sources have not been replaced") from exc
+        raise HTTPException(503, "Songwriting storage is unavailable; recordings have not been replaced") from exc
+
+
+def store_for(session_id):
+    return run(SongStore, session_id)
+
+
+@router.get("/soundfont")
+def soundfont_status():
+    return run(soundfont.status)
+
+
+@router.post("/soundfont/install")
+def soundfont_install():
+    return run(soundfont.install)
+
+
+@router.get("/soundfont/chunks/{index}")
+def soundfont_chunk(index: int):
+    return run(soundfont.chunk, index)
 
 
 @router.get("/sessions/{session_id}/project")
 def project(session_id: str):
-    return run(session_id, "read")
+    return run(store_for(session_id).read)
 
 
-@router.post("/sessions/{session_id}/captures")
-def capture(session_id: str, take: MidiTake):
-    return run(session_id, "capture_midi", take)
+@router.post("/sessions/{session_id}/settings")
+def song_settings(session_id: str, request: SongSettingsRequest):
+    return run(lanes.settings, store_for(session_id), request)
 
 
-@router.post("/sessions/{session_id}/proposal")
-def proposal(session_id: str, request: ProposalRequest):
-    return run(session_id, "propose", request)
+@router.post("/sessions/{session_id}/lanes")
+def add_lane(session_id: str, request: AddLaneRequest):
+    return run(lanes.add_lane, store_for(session_id), request)
+
+
+@router.post("/sessions/{session_id}/lanes/{lane_id}")
+def update_lane(session_id: str, lane_id: str, request: UpdateLaneRequest):
+    return run(lanes.update_lane, store_for(session_id), lane_id, request)
+
+
+@router.post("/sessions/{session_id}/lanes/{lane_id}/delete")
+def delete_lane(session_id: str, lane_id: str):
+    return run(lanes.delete_lane, store_for(session_id), lane_id)
+
+
+@router.post("/sessions/{session_id}/lanes/{lane_id}/midi")
+def record_midi(session_id: str, lane_id: str, request: MidiTakeRequest):
+    return run(lanes.record_midi, store_for(session_id), lane_id, request)
+
+
+@router.post("/sessions/{session_id}/lanes/{lane_id}/audio")
+def record_audio(session_id: str, lane_id: str, request: AudioTakeRequest):
+    return run(lanes.record_audio, store_for(session_id), lane_id, request)
+
+
+@router.get("/sessions/{session_id}/captures/{capture_id}/chunks/{index}")
+def capture_chunk(session_id: str, capture_id: str, index: int):
+    return run(lanes.capture_chunk, store_for(session_id), capture_id, index)
 
 
 @router.post("/sessions/{session_id}/apply")
 def apply(session_id: str, request: ApplyRequest):
-    return run(session_id, "apply", request)
+    return run(lanes.apply, store_for(session_id), request)
 
 
 @router.post("/sessions/{session_id}/reject")
 def reject(session_id: str, request: RejectRequest):
-    return run(session_id, "reject", request)
+    return run(lanes.reject, store_for(session_id), request)
 
 
 @router.post("/sessions/{session_id}/undo")
-def undo(session_id: str, request: UndoRequest):
-    return run(session_id, "undo", request)
-
-
-@router.post("/sessions/{session_id}/audio")
-def upload(session_id: str, request: AudioRequest):
-    return run(session_id, "upload", request)
-
-
-@router.post("/sessions/{session_id}/render")
-@router.post("/sessions/{session_id}/export")
-def render(session_id: str, request: RenderRequest):
-    return run(session_id, "render", request)
+def undo(session_id: str):
+    return run(lanes.undo, store_for(session_id))

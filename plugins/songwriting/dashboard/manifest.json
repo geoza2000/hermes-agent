@@ -1,8 +1,8 @@
 {
   "name": "songwriting",
   "label": "In-chat songwriting",
-  "description": "Session-scoped capture, reviewed symbolic arrangements and local sequenced synthesis. No separate studio page.",
-  "version": "0.1.0",
+  "description": "Session-scoped songwriting lanes, recordings, reviewed suggestions and the sampled instrument bank.",
+  "version": "0.2.0",
   "tab": { "hidden": true },
   "entry": "api-only.js",
   "api": "plugin_api.py"

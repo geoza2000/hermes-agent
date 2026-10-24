@@ -1,5 +1,7 @@
-"""Session-scoped songwriting REST behavior; all sources stay inside the test home."""
+"""Session-scoped songwriting lanes over REST; every recording stays inside the test home."""
+import base64
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -22,11 +24,13 @@ TAKE = {
         {"timeMs": 500, "data": [176, 64, 0]},
     ],
 }
+BASS = {"program": 33, "drums": False}
+TRUMPET = {"program": 56, "drums": False}
+NOTE = {"startMs": 0, "durationMs": 400, "note": 40, "velocity": 80}
 
 
 def load_router():
     path = Path(__file__).resolve().parents[2] / "plugins/songwriting/dashboard/plugin_api.py"
-    assert path.exists(), "songwriting API plugin must exist"
     spec = importlib.util.spec_from_file_location("songwriting_dashboard_test", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -45,194 +49,155 @@ def client():
     return TestClient(app)
 
 
-def test_empty_read_does_not_create_project_and_capture_is_immutable(client):
-    root = get_hermes_home() / "plugin-data/songwriting"
-    response = client.get(PREFIX + "/project")
+def add_lane(client, name="Bass", instrument=BASS, source="midi", prefix=PREFIX):
+    response = client.post(prefix + "/lanes", json={"name": name, "instrument": instrument, "source": source})
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        "schema": 1, "id": "song-session", "title": "Untitled song", "revision": 0,
-        "brief": "", "tracks": [], "captures": [],
-    }
+    return response.json()["lane"]
+
+
+def record(client, lane, take=TAKE, start=0):
+    return client.post(f"{PREFIX}/lanes/{lane['id']}/midi", json={"take": take, "startMs": start})
+
+
+def hum(client, lane, notes=None, data=b"RIFF fake webm bytes", mime="audio/webm;codecs=opus"):
+    return client.post(f"{PREFIX}/lanes/{lane['id']}/audio", json={
+        "name": "Voice", "mime": mime, "data": base64.b64encode(data).decode(), "durationMs": 1200,
+        "startMs": 500, "notes": notes if notes is not None else [{**NOTE, "note": 64}]})
+
+
+def propose(changes, brief="Busier bass"):
+    from plugins.songwriting.tool import handle
+    return json.loads(handle({"action": "propose", "brief": brief, "changes": changes}, session_id="song-session"))
+
+
+def test_empty_song_is_read_only_and_a_take_lands_on_its_lane_immutably(client):
+    root = get_hermes_home() / "plugin-data/songwriting/sessions"
+    project = client.get(PREFIX + "/project").json()
+    assert project["schema"] == 2 and project["lanes"] == [] and project["revision"] == 0
     assert not root.exists()
-    response = client.post(PREFIX + "/captures", json=TAKE)
-    assert response.status_code == 200, response.text
-    result = response.json()
-    import json
+    lane = add_lane(client)
+    assert lane["instrument"] == BASS and lane["notes"] == []
+    result = record(client, lane, start=2000).json()
     assert json.loads(Path(result["capturePath"]).read_text()) == TAKE
-    track = result["project"]["tracks"][0]
-    assert track["protected"] and track["origin"] == "recorded"
-    assert track["notes"] == [{"startMs": 0, "durationMs": 500, "note": 60, "velocity": 100}]
-    assert result["project"]["revision"] == 1
-    assert client.get(PREFIX + "/project").json() == result["project"]
+    [saved] = result["project"]["lanes"]
+    assert saved["notes"] == [{"startMs": 2000, "durationMs": 500, "note": 60, "velocity": 100}]
+    assert result["project"]["selectedLaneId"] == lane["id"]
     before = Path(result["capturePath"]).read_bytes()
-    second = client.post(PREFIX + "/captures", json=TAKE).json()
+    second = record(client, lane).json()
     assert second["capturePath"] != result["capturePath"]
     assert Path(result["capturePath"]).read_bytes() == before
     assert len(second["project"]["captures"]) == 2
 
 
-def generated(track_id="bass", note=40):
-    return {"id": track_id, "name": "Bass", "kind": "midi", "origin": "generated",
-            "protected": False, "instrument": "bass",
-            "notes": [{"startMs": 0, "durationMs": 400, "note": note, "velocity": 80}]}
+def test_drum_pads_play_whatever_instrument_the_lane_has(client):
+    # An electronic kit's real pattern: note-on then velocity-0 note-on in the same instant,
+    # on channel 10, between MIDI clock ticks.
+    events = []
+    for time, pad in ((83, 38), (504, 38), (1562, 48), (2137, 45)):
+        events += [{"timeMs": time - 1, "data": [0xF8]}, {"timeMs": time, "data": [0x99, pad, 30]},
+                   {"timeMs": time, "data": [0x99, pad, 0]}]
+    kit = {**TAKE, "device": {"id": "kit", "name": "Alesis Nitro Max", "manufacturer": "Alesis"},
+           "durationMs": 3000, "events": events}
+    lane = add_lane(client)
+    [saved] = record(client, lane, take=kit).json()["project"]["lanes"]
+    assert [(note["startMs"], note["note"], note["durationMs"]) for note in saved["notes"]] == [
+        (83, 38, 100), (504, 38, 100), (1562, 48, 100), (2137, 45, 100)]
+    # Any device plays any instrument: drum pads recorded onto a bass lane stay a bass part.
+    assert saved["instrument"] == BASS
 
 
-def propose(client, tracks, revision, brief="Add a quiet bass part"):
-    return client.post(PREFIX + "/proposal", json={"baseRevision": revision,
-                       "brief": brief, "tracks": tracks})
+def test_hummed_voice_plays_as_its_instrument_and_keeps_the_recording(client):
+    lane = add_lane(client, "Trumpet", TRUMPET, "voice")
+    result = hum(client, lane).json()
+    [saved] = result["project"]["lanes"]
+    assert saved["play"] == "notes" and saved["notes"][0]["startMs"] == 500
+    assert saved["audio"]["startMs"] == 500 and saved["audio"]["durationMs"] == 1200
+    assert Path(result["capturePath"]).read_bytes() == b"RIFF fake webm bytes"
+    chunk = client.get(f"{PREFIX}/captures/{saved['audio']['captureId']}/chunks/0").json()
+    assert base64.b64decode(chunk["data"]) == b"RIFF fake webm bytes" and chunk["chunks"] == 1
+    back = client.post(f"{PREFIX}/lanes/{lane['id']}", json={"play": "audio"})
+    assert back.json()["lanes"][0]["play"] == "audio"
+    plain = add_lane(client, "Room", TRUMPET, "audio")
+    assert hum(client, plain, notes=[]).json()["project"]["lanes"][1]["play"] == "audio"
 
 
-def test_proposals_are_reviewed_revision_fenced_and_undoable(client):
-    original = client.post(PREFIX + "/captures", json=TAKE).json()["project"]
-    proposal = propose(client, [generated()], 1)
-    assert proposal.status_code == 200, proposal.text
-    pending = proposal.json()
-    assert pending["project"]["tracks"] == original["tracks"]
-    assert pending["proposal"]["baseRevision"] == 1
-    assert client.get(PREFIX + "/project").json()["proposal"] == pending["proposal"]
-    assert propose(client, [generated()], 0).status_code == 409
-    applied = client.post(PREFIX + "/apply", json={"proposalId": pending["proposal"]["id"], "baseRevision": 1})
-    assert applied.status_code == 200, applied.text
-    project = applied.json()
-    assert project["revision"] == 2 and len(project["tracks"]) == 2
-    assert project["tracks"][0] == original["tracks"][0]
-    assert "proposal" not in project
-    assert client.post(PREFIX + "/apply", json={"proposalId": pending["proposal"]["id"], "baseRevision": 1}).status_code == 409
-    pending2 = propose(client, [generated("lead", 72)], 2).json()["proposal"]
-    assert client.post(PREFIX + "/reject", json={"proposalId": pending["proposal"]["id"]}).status_code == 409
-    rejected = client.post(PREFIX + "/reject", json={"proposalId": pending2["id"]})
-    assert rejected.status_code == 200 and "proposal" not in rejected.json()
-    assert client.post(PREFIX + "/undo", json={"baseRevision": 1}).status_code == 409
-    undone = client.post(PREFIX + "/undo", json={"baseRevision": 2})
-    assert undone.status_code == 200, undone.text
-    assert undone.json()["revision"] == 3
-    assert undone.json()["tracks"] == original["tracks"]
-    assert undone.json()["captures"] == original["captures"]
+def test_mixer_changes_are_not_undo_history_but_content_changes_are(client):
+    lane = add_lane(client)
+    record(client, lane)
+    client.post(f"{PREFIX}/lanes/{lane['id']}", json={"muted": True, "volume": 0.3})
+    client.post(f"{PREFIX}/lanes/{lane['id']}", json={"instrument": TRUMPET})
+    undone = client.post(PREFIX + "/undo").json()
+    assert undone["lanes"][0]["instrument"] == BASS
+    assert undone["lanes"][0]["muted"] is True and undone["lanes"][0]["volume"] == 0.3
+    assert client.post(PREFIX + "/undo").json()["lanes"][0]["notes"] == []
+    assert client.post(PREFIX + "/undo").json()["lanes"] == []
+    assert client.post(PREFIX + "/undo").status_code == 409
 
 
-def test_named_generated_changes_keep_other_tracks_and_protect_sources(client):
-    original = client.post(PREFIX + "/captures", json=TAKE).json()["project"]
-    source = original["tracks"][0]
-    attempted = dict(generated(), id=source["id"])
-    assert propose(client, [attempted], 1).status_code == 400
-    pending = propose(client, [generated(), generated("lead", 72)], 1).json()["proposal"]
-    project = client.post(PREFIX + "/apply", json={"proposalId": pending["id"], "baseRevision": 1}).json()
-    lead = project["tracks"][2]
-    pending = propose(client, [generated(note=43)], 2).json()["proposal"]
-    project = client.post(PREFIX + "/apply", json={"proposalId": pending["id"], "baseRevision": 2}).json()
-    assert project["tracks"][0] == source and project["tracks"][2] == lead
-    assert project["tracks"][1]["notes"][0]["note"] == 43
-    assert propose(client, [generated(), generated()], 3).status_code == 400
-    bad = dict(generated("unsafe"), kind="audio", path="/etc/passwd", notes=None)
-    assert propose(client, [bad], 3).status_code == 400
+def test_suggestions_preview_then_keep_with_undo_and_stale_lanes_refuse(client):
+    lane = add_lane(client)
+    record(client, lane)
+    original = client.get(PREFIX + "/project").json()
+    pending = propose([{"laneId": lane["id"], "notes": [NOTE, {**NOTE, "startMs": 400}]},
+                       {"laneId": "hermes_pad", "name": "Pad", "instrument": {"program": 89}, "notes": [NOTE]}])
+    assert client.get(PREFIX + "/project").json()["lanes"] == original["lanes"]
+    kept = client.post(PREFIX + "/apply", json={"proposalId": pending["proposal"]["id"]}).json()
+    assert [len(item["notes"]) for item in kept["lanes"]] == [2, 1] and "proposal" not in kept
+    assert kept["lanes"][1]["source"] == "hermes"
+    assert client.post(PREFIX + "/undo").json()["lanes"] == original["lanes"]
+    stale = propose([{"laneId": lane["id"], "notes": [NOTE]}])
+    record(client, lane, start=1000)
+    response = client.post(PREFIX + "/apply", json={"proposalId": stale["proposal"]["id"]})
+    assert response.status_code == 409
 
 
-def test_undo_never_loses_capture_added_after_apply(client):
-    pending = propose(client, [generated()], 0).json()["proposal"]
-    client.post(PREFIX + "/apply", json={"proposalId": pending["id"], "baseRevision": 0})
-    recorded = client.post(PREFIX + "/captures", json=TAKE).json()["project"]
-    undone = client.post(PREFIX + "/undo", json={"baseRevision": 2})
-    assert undone.status_code == 200, undone.text
-    assert undone.json()["captures"] == recorded["captures"]
-    assert undone.json()["tracks"] == [recorded["tracks"][1]]
+def test_unrelated_lane_edits_do_not_invalidate_a_suggestion(client):
+    bass, other = add_lane(client), add_lane(client, "Keys", {"program": 0})
+    pending = propose([{"laneId": bass["id"], "notes": [NOTE]}])
+    record(client, other)
+    client.post(f"{PREFIX}/lanes/{bass['id']}", json={"solo": True})
+    assert client.post(PREFIX + "/apply", json={"proposalId": pending["proposal"]["id"]}).status_code == 200
 
 
-def wav_bytes(value=5000, frames=24000, rate=24000):
-    from array import array
-    import io
-    import wave
-    output = io.BytesIO()
-    with wave.open(output, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(rate)
-        wav.writeframes(array("h", [value] * frames).tobytes())
-    return output.getvalue()
+def test_suggestions_are_bounded_and_cannot_invent_or_remove_missing_lanes(client):
+    assert propose([{"laneId": "ghost", "remove": True}])["status"] == 400
+    assert propose([{"laneId": "ghost", "notes": [NOTE]}])["status"] == 400
+    assert propose([{"laneId": "x", "remove": True, "notes": [NOTE]}])["status"] == 422
+    for index in range(16):
+        add_lane(client, f"Lane {index}")
+    assert client.post(PREFIX + "/lanes", json={"name": "17", "instrument": BASS, "source": "midi"}).status_code == 400
+    assert propose([{"laneId": "extra", "instrument": BASS, "notes": [NOTE]}])["status"] == 400
 
 
-def read_samples(path):
-    from array import array
-    import wave
-    with wave.open(str(path), "rb") as wav:
-        assert wav.getnchannels() == 1 and wav.getsampwidth() == 2
-        return wav.getframerate(), array("h", wav.readframes(wav.getnframes()))
+def test_concurrent_keep_has_exactly_one_winner(client):
+    from concurrent.futures import ThreadPoolExecutor
+    lane = add_lane(client)
+    pending = propose([{"laneId": lane["id"], "notes": [NOTE]}])["proposal"]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        codes = list(executor.map(lambda _: client.post(PREFIX + "/apply", json={"proposalId": pending["id"]}).status_code, range(2)))
+    assert sorted(codes) == [200, 409]
 
 
-def test_real_audio_upload_and_single_mixed_wav_with_stems(client):
-    import base64
-    payload = wav_bytes()
-    upload = client.post(PREFIX + "/audio", json={"name": "Microphone.wav", "mime": "audio/wav",
-                                                  "data": base64.b64encode(payload).decode()})
-    assert upload.status_code == 200, upload.text
-    captured = upload.json()
-    assert Path(captured["capturePath"]).read_bytes() == payload
-    audio = captured["project"]["tracks"][0]
-    assert audio["kind"] == "audio" and audio["protected"]
-    assert audio["durationMs"] == 1000
-    proposal = propose(client, [generated()], 1).json()["proposal"]
-    client.post(PREFIX + "/apply", json={"proposalId": proposal["id"], "baseRevision": 1})
-    stem = client.post(PREFIX + "/render", json={"trackIds": ["bass"]})
-    assert stem.status_code == 200, stem.text
-    assert stem.json()["mime"] == "audio/wav" and stem.json()["durationMs"] == 400
-    rate, samples = read_samples(stem.json()["path"])
-    assert rate == 24000 and max(samples) > 100 and min(samples) < -100
-    original = client.post(PREFIX + "/render", json={"trackIds": [audio["id"]]}).json()
-    _, audio_samples = read_samples(original["path"])
-    assert list(audio_samples) == [5000] * 24000
-    export = client.post(PREFIX + "/export", json={})
-    assert export.status_code == 200, export.text
-    mix = export.json()
-    _, mixed = read_samples(mix["path"])
-    assert mix["durationMs"] == 1000 and len(mixed) == 24000
-    assert list(mixed[:len(samples)]) != list(samples)
-    assert list(mixed[15000:]) == [5000] * 9000
-    assert 5000 < max(mixed) < 32767
-    assert client.post(PREFIX + "/render", json={"trackIds": ["absent"]}).status_code == 400
-    assert client.post(PREFIX + "/render", json={"trackIds": []}).status_code == 400
-
-
-def test_audio_rejects_invalid_and_overlong_uploads_without_mutating(client):
-    import base64
-    for data in ("not base64", base64.b64encode(b"not audio").decode()):
-        response = client.post(PREFIX + "/audio", json={"name": "bad.wav", "mime": "audio/wav", "data": data})
-        assert response.status_code == 400, response.text
-    # A WAV header advertises a duration beyond the bounded decode budget.
-    payload = wav_bytes(frames=301, rate=1)
-    response = client.post(PREFIX + "/audio", json={"name": "long.wav", "mime": "audio/wav",
-                                                   "data": base64.b64encode(payload).decode()})
-    assert response.status_code == 400, response.text
-    assert client.get(PREFIX + "/project").json()["revision"] == 0
-
-
-def test_high_rate_single_frame_audio_is_rejected_before_publication(client, monkeypatch):
-    import base64
-    import os
-    before = client.post(PREFIX + "/captures", json=TAKE).json()["project"]
-    directory = Path(before["captures"][0]["path"]).parent
-    files = {path.name for path in directory.iterdir() if path.is_file()}
-    published = []
-    link = os.link
-
-    def record_publication(*args, **kwargs):
-        published.append(args)
-        return link(*args, **kwargs)
-
-    monkeypatch.setattr(os, "link", record_publication)
-    response = client.post(PREFIX + "/audio", json={"name": "tiny.wav", "mime": "audio/wav",
-                           "data": base64.b64encode(wav_bytes(frames=1, rate=192000)).decode()})
-    assert response.status_code == 400, response.text
-    assert "too short" in response.json()["detail"].lower()
+def test_audio_takes_reject_bad_payloads_without_mutating(client):
+    lane = add_lane(client, "Voice", TRUMPET, "voice")
+    before = client.get(PREFIX + "/project").json()
+    for body in ({"mime": "audio/webm", "data": "not base64"}, {"mime": "text/html", "data": "AAAA"}):
+        payload = {"name": "x", "durationMs": 10, **body}
+        assert client.post(f"{PREFIX}/lanes/{lane['id']}/audio", json=payload).status_code == 400
+    response = client.post(f"{PREFIX}/lanes/{lane['id']}/audio", json={
+        "name": "x", "mime": "audio/webm", "data": "PRIVATE_AUDIO_PAYLOAD", "durationMs": 10, "extra": 1})
+    assert response.status_code == 422 and "PRIVATE_AUDIO_PAYLOAD" not in response.text
     assert client.get(PREFIX + "/project").json() == before
-    assert {path.name for path in directory.iterdir() if path.is_file()} == files
-    assert list((directory / ".pending-assets").iterdir()) == []
-    assert published == []
 
 
 def test_session_lookup_is_exact_and_profile_local(client, tmp_path):
-    from hermes_constants import set_hermes_home_override, reset_hermes_home_override
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
     assert client.get(PREFIX.replace("song-session", "song") + "/project").status_code == 404
-    assert client.post(PREFIX.replace("song-session", "unknown") + "/captures", json=TAKE).status_code == 404
-    captured = client.post(PREFIX + "/captures", json=TAKE).json()
+    unknown = PREFIX.replace("song-session", "unknown")
+    assert client.post(unknown + "/lanes", json={"name": "B", "instrument": BASS, "source": "midi"}).status_code == 404
+    lane = add_lane(client)
+    record(client, lane)
+    saved = client.get(PREFIX + "/project").json()
     other_home = tmp_path / "other-profile"
     other_home.mkdir()
     token = set_hermes_home_override(other_home)
@@ -240,86 +205,50 @@ def test_session_lookup_is_exact_and_profile_local(client, tmp_path):
         db = SessionDB(db_path=other_home / "state.db")
         db.create_session("song-session", source="desktop")
         db.close()
-        fresh = client.get(PREFIX + "/project")
-        assert fresh.status_code == 200 and fresh.json()["tracks"] == []
-        assert not (other_home / "plugin-data/songwriting").exists()
+        assert client.get(PREFIX + "/project").json()["lanes"] == []
+        assert not (other_home / "plugin-data/songwriting/sessions").exists()
     finally:
         reset_hermes_home_override(token)
-    assert client.get(PREFIX + "/project").json() == captured["project"]
+    assert client.get(PREFIX + "/project").json() == saved
 
 
 @pytest.mark.platforms("posix")
-def test_symlinked_storage_and_source_files_fail_closed(client, tmp_path):
-    root = get_hermes_home() / "plugin-data"
-    root.mkdir(exist_ok=True)
+def test_symlinked_storage_and_recordings_fail_closed(client, tmp_path):
+    lane = add_lane(client)
+    root = get_hermes_home() / "plugin-data/songwriting/sessions"
     outside = tmp_path / "outside"
     outside.mkdir()
-    (root / "songwriting").symlink_to(outside, target_is_directory=True)
-    response = client.post(PREFIX + "/captures", json=TAKE)
-    assert response.status_code == 400, response.text
+    real = root / "song-session"
+    real.rename(tmp_path / "moved")
+    real.symlink_to(outside, target_is_directory=True)
+    assert record(client, lane).status_code in (400, 404)
     assert list(outside.iterdir()) == []
-    (root / "songwriting").unlink()
-    import base64
-    uploaded = client.post(PREFIX + "/audio", json={"name": "source", "mime": "audio/wav",
-                                                   "data": base64.b64encode(wav_bytes()).decode()}).json()
-    path = Path(uploaded["project"]["tracks"][0]["path"])
+    real.unlink()
+    (tmp_path / "moved").rename(real)
+    result = hum(client, lane).json()
+    capture = result["project"]["captures"][0]
+    path = Path(capture["path"])
     path.unlink()
-    secret = outside / "secret.wav"
-    secret.write_bytes(wav_bytes(value=12345))
+    secret = outside / "secret.webm"
+    secret.write_bytes(b"SECRET_BYTES")
     path.symlink_to(secret)
-    response = client.post(PREFIX + "/render", json={})
-    assert response.status_code == 400, response.text
-    assert str(secret) not in response.text and "12345" not in response.text
+    response = client.get(f"{PREFIX}/captures/{capture['id']}/chunks/0")
+    assert response.status_code == 400 and "SECRET" not in response.text and str(secret) not in response.text
 
 
 def test_request_bodies_are_bounded_before_validation(client):
-    response = client.post(PREFIX + "/captures", content=b"{}", headers={"Content-Length": "999999999", "Content-Type": "application/json"})
+    response = client.post(PREFIX + "/lanes", content=b"{}",
+                           headers={"Content-Length": "999999999", "Content-Type": "application/json"})
     assert response.status_code == 400, response.text
     # Chunked requests cannot bypass the bound by omitting Content-Length.
-    response = client.post(PREFIX + "/proposal", content=iter([b" " * (1024 * 1024)] * 5), headers={"Content-Type": "application/json"})
+    response = client.post(PREFIX + "/settings", content=iter([b" " * (1024 * 1024)] * 5),
+                           headers={"Content-Type": "application/json"})
     assert response.status_code == 400, response.text
-
-
-def test_concurrent_apply_has_exactly_one_winner(client):
-    from concurrent.futures import ThreadPoolExecutor
-    pending = propose(client, [generated()], 0).json()["proposal"]
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(lambda _: client.post(PREFIX + "/apply", json={"proposalId": pending["id"], "baseRevision": 0}).status_code, range(2)))
-    assert sorted(results) == [200, 409]
-    project = client.get(PREFIX + "/project").json()
-    assert project["revision"] == 1 and len(project["tracks"]) == 1
-
-
-def test_audio_mime_codec_parameter_from_real_mediarecorder(client):
-    import base64
-    response = client.post(PREFIX + "/audio", json={"name": "Microphone", "mime": "audio/wav;codecs=pcm",
-                                                   "data": base64.b64encode(wav_bytes()).decode()})
-    assert response.status_code == 200, response.text
-
-
-def test_immutable_source_capture_limit_is_enforced(client):
-    for index in range(32):
-        response = client.post(PREFIX + "/captures", json=TAKE)
-        assert response.status_code == 200, (index, response.text)
-    response = client.post(PREFIX + "/captures", json=TAKE)
-    assert response.status_code == 400, response.text
-    project = client.get(PREFIX + "/project").json()
-    assert project["revision"] == 32 and len(project["tracks"]) == 32
-
-
-def test_imported_audio_is_preserved_when_proposal_is_applied_and_undone(client):
-    import base64
-    result = client.post(PREFIX + "/audio", json={"name": "voice.wav", "mime": "audio/wav", "data": base64.b64encode(wav_bytes()).decode()}).json()
-    raw = Path(result["capturePath"]).read_bytes()
-    proposal = propose(client, [generated()], 1).json()["proposal"]
-    client.post(PREFIX + "/apply", json={"proposalId": proposal["id"], "baseRevision": 1})
-    undo = client.post(PREFIX + "/undo", json={"baseRevision": 2}).json()
-    assert undo["tracks"] == result["project"]["tracks"]
-    assert Path(result["capturePath"]).read_bytes() == raw
 
 
 def test_compression_continuation_keeps_durable_song_but_fork_does_not(client):
-    original = client.post(PREFIX + "/captures", json=TAKE).json()["project"]
+    add_lane(client)
+    original = client.get(PREFIX + "/project").json()
     db = SessionDB()
     db.end_session("song-session", end_reason="compression")
     db.create_session("continuation", source="desktop", parent_session_id="song-session")
@@ -327,38 +256,50 @@ def test_compression_continuation_keeps_durable_song_but_fork_does_not(client):
     db.create_session("marked-fork", source="desktop", parent_session_id="song-session",
                       model_config={"_branched_from": "song-session"})
     db.close()
-    continuation = client.get(PREFIX.replace("song-session", "continuation") + "/project")
-    assert continuation.status_code == 200, continuation.text
-    assert continuation.json() == original
-    fork = client.get(PREFIX.replace("song-session", "fork") + "/project")
-    assert fork.json()["tracks"] == [] and fork.json()["id"] == "fork"
-    marked_fork = client.get(PREFIX.replace("song-session", "marked-fork") + "/project")
-    assert marked_fork.json()["tracks"] == [] and marked_fork.json()["id"] == "marked-fork"
+    assert client.get(PREFIX.replace("song-session", "continuation") + "/project").json() == original
+    for fork in ("fork", "marked-fork"):
+        project = client.get(PREFIX.replace("song-session", fork) + "/project").json()
+        assert project["lanes"] == [] and project["id"] == fork
 
 
 def test_corrupt_song_store_is_reported_without_internal_paths(client):
-    result = client.post(PREFIX + "/captures", json=TAKE).json()
-    db_path = Path(result["capturePath"]).parent / "project.sqlite"
+    lane = add_lane(client)
+    db_path = Path(record(client, lane).json()["capturePath"]).parent / "project.sqlite"
     db_path.write_bytes(b"not a sqlite database")
     response = client.get(PREFIX + "/project")
     assert response.status_code == 503, response.text
     assert str(db_path) not in response.text and "sqlite" not in response.text.lower()
 
 
-def test_validation_rejects_nonfinite_or_malformed_notes_without_echoing_uploads(client):
-    malformed = generated()
-    malformed["notes"][0]["note"] = 128
-    response = propose(client, [malformed], 0)
-    assert response.status_code == 422
-    import json
-    nonfinite = generated()
-    nonfinite["notes"][0]["startMs"] = float("nan")
-    response = client.post(PREFIX + "/proposal", content=json.dumps({"baseRevision": 0, "brief": "Invalid timing", "tracks": [nonfinite]}), headers={"Content-Type": "application/json"})
-    assert response.status_code == 422
-    invalid = dict(TAKE, events=[{"timeMs": 0, "data": [144, 60]}])
-    assert client.post(PREFIX + "/captures", json=invalid).status_code == 422
-    response = client.post(PREFIX + "/audio", json={"name": "invalid", "mime": "audio/wav", "data": "PRIVATE_AUDIO_PAYLOAD", "extra": "not allowed"})
-    assert response.status_code == 422 and "PRIVATE_AUDIO_PAYLOAD" not in response.text
+def test_schema_one_songs_open_as_lanes_without_touching_sources(client):
+    from plugins.songwriting.storage import SongStore
+    store = SongStore("song-session")
+    with store.transaction() as (_, project):
+        project.clear()
+        project.update({"schema": 1, "id": "song-session", "title": "Old", "revision": 3, "brief": "", "captures": [],
+                        "tracks": [{"id": "capture_a", "name": "Keys", "kind": "midi", "origin": "recorded",
+                                    "protected": True, "instrument": "drums", "notes": [NOTE]}]})
+    project = client.get(PREFIX + "/project").json()
+    assert project["schema"] == 2 and project["revision"] == 3
+    assert project["lanes"][0]["instrument"] == {"program": 0, "drums": True}
+    assert project["lanes"][0]["notes"] == [NOTE]
+
+
+def test_a_pending_schema_one_arrangement_survives_as_a_suggestion_to_keep(client):
+    from plugins.songwriting.storage import SongStore
+    bass = {"id": "bass", "name": "Bass", "kind": "midi", "origin": "generated", "protected": False,
+            "instrument": "bass", "notes": [NOTE]}
+    with SongStore("song-session").transaction() as (_, project):
+        project.clear()
+        project.update({"schema": 1, "id": "song-session", "title": "Old", "revision": 0, "brief": "", "tracks": [],
+                        "captures": [], "proposal": {"id": "a" * 32, "baseRevision": 0, "brief": "Indie rock",
+                                                     "tracks": [bass]}})
+    project = client.get(PREFIX + "/project").json()
+    assert project["lanes"] == [] and project["proposal"]["brief"] == "Indie rock"
+    assert project["proposal"]["changes"] == [{"laneId": "bass", "name": "Bass",
+                                                "instrument": {"program": 33, "drums": False}, "notes": [NOTE]}]
+    kept = client.post(PREFIX + "/apply", json={"proposalId": "a" * 32}).json()
+    assert [lane["name"] for lane in kept["lanes"]] == ["Bass"] and "proposal" not in kept
 
 
 def test_native_dashboard_discovery_mounts_api_without_a_new_page(tmp_path):
@@ -377,7 +318,6 @@ def test_native_dashboard_discovery_mounts_api_without_a_new_page(tmp_path):
     assert manifest["tab"]["hidden"] and manifest["has_api"]
     app = FastAPI()
     assert _mount_one_plugin_api(app, manifest, {"songwriting"}, set())
-    mounted_client = TestClient(app)
-    response = mounted_client.get(PREFIX + "/project")
+    response = TestClient(app).get(PREFIX + "/project")
     assert response.status_code == 200, response.text
-    assert response.json()["tracks"] == []
+    assert response.json()["lanes"] == []

@@ -15,7 +15,7 @@ from hermes_constants import get_hermes_home
 from hermes_state import SessionDB
 from plugins.plugin_storage import plugin_data_dir
 
-from .models import MidiTake, symbolic_notes
+from .schema import empty_project, migrate
 
 MAX_SESSION_BYTES = 256 * 1024 * 1024
 MAX_RECONCILE_ASSETS = 64
@@ -67,11 +67,6 @@ def checked_path(root: Path, path: Path) -> Path:
     return path
 
 
-def empty_project(session_id: str) -> dict:
-    return {"schema": 1, "id": session_id, "title": "Untitled song", "revision": 0,
-            "brief": "", "tracks": [], "captures": []}
-
-
 class SongConnection(TrackedConnection):
     _song_assets: list[str]
 
@@ -94,7 +89,7 @@ class SongStore:
             if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='song'").fetchone() is None:
                 return empty_project(self.session_id)
             row = conn.execute("SELECT project FROM song WHERE id=1").fetchone()
-            return json.loads(row[0]) if row else empty_project(self.session_id)
+            return migrate(json.loads(row[0])) if row else empty_project(self.session_id)
         finally:
             conn.close()
 
@@ -115,7 +110,7 @@ class SongStore:
             conn.execute("CREATE TABLE IF NOT EXISTS assets (name TEXT PRIMARY KEY)")
             self.reconcile_pending(conn)
             row = conn.execute("SELECT project FROM song WHERE id=1").fetchone()
-            project = json.loads(row[0]) if row else empty_project(self.session_id)
+            project = migrate(json.loads(row[0])) if row else empty_project(self.session_id)
             yield conn, project
             try:
                 serialized = json.dumps(project, allow_nan=False)
@@ -205,23 +200,3 @@ class SongStore:
         # Validation/decoding uses staging; no final path is published until the
         # transaction body and project serialization have both succeeded.
         return path
-
-    def capture_midi(self, take: MidiTake) -> dict:
-        with self.transaction() as (conn, project):
-            if len(project["tracks"]) >= 32:
-                raise SongError(400, "A song may contain at most 32 tracks")
-            path = self.write_asset(take.model_dump_json(by_alias=True).encode(), ".midi.json", conn=conn)
-            track_id = "capture_" + path.name.split(".")[0]
-            channels = {event.data[0] & 15 for event in take.events
-                        if event.data[0] >> 4 == 9 and event.data[2] > 0}
-            project["tracks"].append({
-                "id": track_id, "name": take.device.name or "MIDI take", "kind": "midi",
-                "origin": "recorded", "protected": True,
-                "instrument": "drums" if channels == {9} else "piano",
-                "notes": symbolic_notes(take), "durationMs": take.durationMs,
-            })
-            project["captures"].append({"id": track_id, "kind": "midi", "name": take.device.name,
-                                        "path": str(path), "durationMs": take.durationMs})
-            project["revision"] += 1
-            project.pop("proposal", None)
-        return {"project": project, "capturePath": str(path)}
