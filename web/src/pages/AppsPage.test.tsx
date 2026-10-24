@@ -54,3 +54,15 @@ it("suggests installing a published app once, and remembers Not now", async () =
   await act(async () => root.render(<AppsPage key="again" />));
   expect(container.textContent).not.toContain("Add it to your home screen or Dock");
 });
+
+
+it("opens an installed app's fresh link when launched with ?open=", async () => {
+  const replace = vi.fn();
+  const original = window.location;
+  Object.defineProperty(window, "location", { configurable: true, value: { ...original, search: "?open=invoices&profile=personal", replace } });
+  fetchJSON.mockResolvedValue({ path: "/apps-cap/fresh/" });
+  await act(async () => root.render(<AppsPage />));
+  expect(fetchJSON).toHaveBeenCalledWith("/api/apps/invoices/link?profile=personal", expect.objectContaining({ method: "POST" }));
+  expect(replace).toHaveBeenCalledWith("/apps-cap/fresh/");
+  Object.defineProperty(window, "location", { configurable: true, value: original });
+});

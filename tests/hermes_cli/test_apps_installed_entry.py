@@ -35,3 +35,14 @@ def test_installed_app_cannot_extend_revoked_capability(gated_client, home):
     apps_links.rotate_key(home)
     assert gated_client.get(base).status_code == 404
     assert gated_client.get(manifest["start_url"], follow_redirects=False).status_code == 302
+
+
+def test_installed_app_without_session_hands_off_to_dashboard(client, home):
+    """Token-mode dashboards (no Portal gate): the installed app must not dead-end."""
+    from hermes_cli.web_routers.apps import _profile_name_for_home
+
+    profile = _profile_name_for_home(home)
+    response = client.get(f"/apps/{profile}/invoices/", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == f"/apps?open=invoices&profile={profile}"
+    assert client.get("/apps/nobody/invoices/", follow_redirects=False).status_code == 404

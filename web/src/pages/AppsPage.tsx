@@ -54,7 +54,34 @@ function InstallTip({ profile, slug, published, onShow }: { profile: string; slu
   </aside>;
 }
 
+/** Installed apps arrive here as /apps?open=<slug>&profile=<p>: mint a fresh link and go. */
+function useOpenRequestedApp(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get("open");
+  const owner = params.get("profile");
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!slug || !/^[a-z0-9][a-z0-9-]{0,47}$/.test(slug)) return;
+    const query = owner ? `?profile=${encodeURIComponent(owner)}` : "";
+    fetchJSON<{ path: string }>(`/api/apps/${encodeURIComponent(slug)}/link${query}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then(link => {
+        if (!link.path.startsWith("/apps-cap/")) throw new Error("Unexpected app link.");
+        window.location.replace(`${HERMES_BASE_PATH}${link.path}`);
+      })
+      .catch(err => setFailed(String(err)));
+  }, [slug, owner]);
+  if (!slug) return null;
+  return failed ? `Could not open this app: ${failed}` : "Opening app…";
+}
+
 export default function AppsPage() {
+  const opening = useOpenRequestedApp();
+  if (opening) return <p role="status" className="p-6">{opening}</p>;
+  return <ScopedApps />;
+}
+
+function ScopedApps() {
   const { profile } = useProfileScope();
   return <ProfileApps key={profile} />;
 }

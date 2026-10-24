@@ -419,11 +419,15 @@ async def _data(view: Optional[_View], key: Optional[str], request: Request, op:
 async def app_entry(profile: str, slug: str, request: Request, rel_path: str = ""):
     signed_in = getattr(request.state, "session", None) is not None or getattr(request.state, "native_http_principal", None)
     if not signed_in:
-        return apps_web.message_page(
-            "Sign in to open this app",
-            "Private Hermes apps open from Hermes Desktop or a signed-in Hermes dashboard.",
-            status=401,
-        )
+        # An installed app has no dashboard token or cookie of its own. Hand off to the dashboard
+        # page, which signs in the usual way (Portal login, or its own token), mints a link and
+        # comes straight back. The slug and profile are validated there before anything opens.
+        if home_ok := (apps_store.SLUG_RE.match(slug) and _home_for_profile(profile) is not None):
+            del home_ok
+            root = request.scope.get("root_path", "").rstrip("/")
+            target = f"{root}/apps?open={quote(slug)}&profile={quote(profile)}"
+            return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
+        return _not_found()
     home = _home_for_profile(profile)
     if home is None or not apps_store.SLUG_RE.match(slug):
         return _not_found()

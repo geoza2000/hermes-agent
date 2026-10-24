@@ -113,7 +113,9 @@ def test_public_apps_serve_without_auth_but_never_expose_owner_data(client, home
 def test_signed_in_entry_requires_a_session_on_loopback(client, home):
     profile = client.get("/api/apps", headers=AUTH).json()["profile"]
     r = client.get(f"/apps/{profile}/invoices/", follow_redirects=False)
-    assert r.status_code == 401, "a bare loopback request is not a signed-in owner"
+    # A bare loopback request is not a signed-in owner: no link is minted, it goes to the dashboard.
+    assert r.status_code == 302 and "/apps-cap/" not in r.headers["location"]
+    assert r.headers["location"].startswith("/apps?open=invoices")
 
 
 @pytest.fixture
