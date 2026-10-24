@@ -53,7 +53,7 @@ export interface AppsCopy {
   runs: string
   noRuns: string
   openSession: string
-  runStatus: Record<'done' | 'failed' | 'needs_input' | 'queued' | 'running', string>
+  runStatus: Record<'done' | 'failed' | 'needs_input' | 'queued' | 'running' | 'waiting', string>
   saveFailed: string
 }
 
@@ -106,7 +106,7 @@ const en: AppsCopy = {
   runs: 'Hermes sessions',
   noRuns: 'This app hasn’t sent anything to Hermes yet.',
   openSession: 'Open session',
-  runStatus: { queued: 'Queued', running: 'Working', needs_input: 'Needs your answer', done: 'Done', failed: 'Failed' },
+  runStatus: { queued: 'Queued', running: 'Working', needs_input: 'Needs your answer', done: 'Done', failed: 'Failed', waiting: 'Waiting for you' },
   saveFailed: 'Could not save the change'
 }
 
@@ -159,7 +159,7 @@ const de: AppsCopy = {
   runs: 'Hermes-Sitzungen',
   noRuns: 'Diese App hat Hermes noch nichts gesendet.',
   openSession: 'Sitzung öffnen',
-  runStatus: { queued: 'In Warteschlange', running: 'In Arbeit', needs_input: 'Wartet auf Antwort', done: 'Fertig', failed: 'Fehlgeschlagen' },
+  runStatus: { queued: 'In Warteschlange', running: 'In Arbeit', needs_input: 'Wartet auf Antwort', done: 'Fertig', failed: 'Fehlgeschlagen', waiting: 'Wartet auf dich' },
   saveFailed: 'Änderung konnte nicht gespeichert werden'
 }
 
@@ -212,7 +212,7 @@ const es: AppsCopy = {
   runs: 'Sesiones de Hermes',
   noRuns: 'Esta app aún no ha enviado nada a Hermes.',
   openSession: 'Abrir sesión',
-  runStatus: { queued: 'En cola', running: 'Trabajando', needs_input: 'Necesita tu respuesta', done: 'Hecho', failed: 'Falló' },
+  runStatus: { queued: 'En cola', running: 'Trabajando', needs_input: 'Necesita tu respuesta', done: 'Hecho', failed: 'Falló', waiting: 'Esperándote' },
   saveFailed: 'No se pudo guardar el cambio'
 }
 
@@ -265,7 +265,7 @@ const fr: AppsCopy = {
   runs: 'Sessions Hermes',
   noRuns: 'Cette app n’a encore rien envoyé à Hermes.',
   openSession: 'Ouvrir la session',
-  runStatus: { queued: 'En attente', running: 'En cours', needs_input: 'Attend votre réponse', done: 'Terminé', failed: 'Échec' },
+  runStatus: { queued: 'En attente', running: 'En cours', needs_input: 'Attend votre réponse', done: 'Terminé', failed: 'Échec', waiting: 'En attente de vous' },
   saveFailed: 'Impossible d’enregistrer la modification'
 }
 
@@ -318,7 +318,7 @@ const ja: AppsCopy = {
   runs: 'Hermes セッション',
   noRuns: 'このアプリはまだ Hermes に何も送信していません。',
   openSession: 'セッションを開く',
-  runStatus: { queued: '待機中', running: '処理中', needs_input: '回答待ち', done: '完了', failed: '失敗' },
+  runStatus: { queued: '待機中', running: '処理中', needs_input: '回答待ち', done: '完了', failed: '失敗', waiting: 'あなたの回答待ち' },
   saveFailed: '変更を保存できませんでした'
 }
 
@@ -371,7 +371,7 @@ const ru: AppsCopy = {
   runs: 'Сеансы Hermes',
   noRuns: 'Это приложение ещё ничего не отправляло в Hermes.',
   openSession: 'Открыть сеанс',
-  runStatus: { queued: 'В очереди', running: 'В работе', needs_input: 'Нужен ваш ответ', done: 'Готово', failed: 'Ошибка' },
+  runStatus: { queued: 'В очереди', running: 'В работе', needs_input: 'Нужен ваш ответ', done: 'Готово', failed: 'Ошибка', waiting: 'Ждёт вас' },
   saveFailed: 'Не удалось сохранить изменение'
 }
 
@@ -424,7 +424,7 @@ const zh: AppsCopy = {
   runs: 'Hermes 会话',
   noRuns: '此应用还没有向 Hermes 发送任何内容。',
   openSession: '打开会话',
-  runStatus: { queued: '排队中', running: '处理中', needs_input: '需要你的回答', done: '完成', failed: '失败' },
+  runStatus: { queued: '排队中', running: '处理中', needs_input: '需要你的回答', done: '完成', failed: '失败', waiting: '等待你处理' },
   saveFailed: '无法保存更改'
 }
 
@@ -477,7 +477,7 @@ const zhHant: AppsCopy = {
   runs: 'Hermes 工作階段',
   noRuns: '此應用程式尚未向 Hermes 傳送任何內容。',
   openSession: '開啟工作階段',
-  runStatus: { queued: '排隊中', running: '處理中', needs_input: '需要你的回答', done: '完成', failed: '失敗' },
+  runStatus: { queued: '排隊中', running: '處理中', needs_input: '需要你的回答', done: '完成', failed: '失敗', waiting: '等待你處理' },
   saveFailed: '無法儲存變更'
 }
 
@@ -530,7 +530,7 @@ const ar: AppsCopy = {
   runs: 'جلسات Hermes',
   noRuns: 'لم يرسل هذا التطبيق أي شيء إلى Hermes بعد.',
   openSession: 'فتح الجلسة',
-  runStatus: { queued: 'في الانتظار', running: 'قيد العمل', needs_input: 'بانتظار إجابتك', done: 'تم', failed: 'فشل' },
+  runStatus: { queued: 'في الانتظار', running: 'قيد العمل', needs_input: 'بانتظار إجابتك', done: 'تم', failed: 'فشل', waiting: 'بانتظارك' },
   saveFailed: 'تعذر حفظ التغيير'
 }
 

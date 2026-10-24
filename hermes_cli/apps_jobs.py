@@ -12,8 +12,10 @@ The server creates a job and launches ``hermes apps run-job``; the worker owns `
 while it runs. The server only writes the separate answer/message files, so the two processes
 never write the same file.
 
-Statuses: ``queued`` → ``running`` → (``needs_input`` ↔ ``running``) → ``done`` | ``failed``.
-A finished job accepts a follow-up message, which resumes the same Hermes session.
+Statuses: ``queued`` → ``running`` → (``needs_input`` ↔ ``running``) → ``done`` | ``failed`` | ``waiting``.
+``waiting``: a question went unanswered while the app was open, so the turn ended; the question and
+session id stay on the job and a later answer resumes the same Hermes session. A finished job also
+accepts a follow-up message. Waiting jobs do not count toward the active-request cap.
 """
 
 from __future__ import annotations
@@ -38,7 +40,7 @@ TOTAL_FILES_MAX_BYTES = 40 * 1024 * 1024
 MAX_ACTIVE_JOBS = 2
 STEPS_KEPT = 40
 ACTIVE = frozenset({"queued", "running", "needs_input"})
-FINISHED = frozenset({"done", "failed"})
+FINISHED = frozenset({"done", "failed", "waiting"})
 _JOB_ID_RE = re.compile(r"^[a-z0-9]{12}$")
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]+")
 _FENCED_JSON = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
@@ -94,7 +96,7 @@ def _clean_context(context: Any) -> Optional[dict]:
 
 
 def active_jobs(home: Path, slug: str) -> int:
-    return sum(1 for job in list_jobs(home, slug, limit=50) if job.get("status") in ACTIVE)
+    return sum(1 for job in _all_jobs(home, slug) if job.get("status") in ACTIVE)
 
 
 def create_job(home: Path, slug: str, prompt: str, *, files: Sequence[tuple[str, bytes]] = (),
@@ -157,7 +159,15 @@ def add_step(job: dict[str, Any], text: str) -> None:
     job.setdefault("steps", []).append({"at": _now(), "text": str(text)[:200]})
 
 
-def list_jobs(home: Path, slug: str, *, limit: int = 20) -> list[dict[str, Any]]:
+def list_jobs(home: Path, slug: str, *, limit: int = 20, pending: bool = False) -> list[dict[str, Any]]:
+    """Newest first. *pending* keeps only requests waiting on an answer."""
+    jobs = _all_jobs(home, slug)
+    if pending:
+        jobs = [j for j in jobs if j.get("status") in ("needs_input", "waiting")]
+    return jobs[: max(1, limit)]
+
+
+def _all_jobs(home: Path, slug: str) -> list[dict[str, Any]]:
     root = jobs_root(home, slug)
     if not root.is_dir():
         return []
@@ -168,7 +178,7 @@ def list_jobs(home: Path, slug: str, *, limit: int = 20) -> list[dict[str, Any]]
             if isinstance(job, dict):
                 jobs.append(job)
     jobs.sort(key=lambda j: j.get("created_at") or 0, reverse=True)
-    return jobs[: max(1, limit)]
+    return jobs
 
 
 def public_view(job: dict[str, Any]) -> dict[str, Any]:
@@ -179,9 +189,12 @@ def public_view(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def submit_answer(home: Path, slug: str, job_id: str, answers: Any) -> dict[str, Any]:
+    """Answer a live question (the turn is still open) or a ``waiting`` one (queues a resume).
+
+    Returns the job; ``job["resume"]`` is True when the caller must relaunch the worker."""
     job = load_job(home, slug, job_id)
     question = job.get("question")
-    if job.get("status") != "needs_input" or not question:
+    if job.get("status") not in ("needs_input", "waiting") or not question:
         raise AppError("This request is not waiting for an answer.")
     if not isinstance(answers, dict):
         raise AppError("Answers must be an object keyed by question id.")
@@ -197,8 +210,19 @@ def submit_answer(home: Path, slug: str, job_id: str, answers: Any) -> dict[str,
             cleaned[qid] = None
         else:
             cleaned[qid] = str(value)[:MESSAGE_MAX]
+    if job["status"] == "waiting":
+        return dict(queue_message(home, slug, job_id, _answers_message(question, cleaned)), resume=True)
     _write_json(job_dir(home, slug, job_id) / "answer.json", {"ask_id": question["ask_id"], "answers": cleaned})
     return job
+
+
+def _answers_message(question: dict, answers: dict) -> str:
+    lines = ["Answers to the questions you asked earlier:"]
+    for q in question.get("questions") or []:
+        value = answers.get(q["qid"])
+        shown = ", ".join(value) if isinstance(value, list) else (value or "(no answer)")
+        lines.append(f"- {q['question']} {shown}")
+    return "\n".join(lines)[:MESSAGE_MAX]
 
 
 def queue_message(home: Path, slug: str, job_id: str, message: str) -> dict[str, Any]:
@@ -216,6 +240,7 @@ def queue_message(home: Path, slug: str, job_id: str, message: str) -> dict[str,
     _write_json(job_dir(home, slug, job_id) / "message.json", {"message": message})
     job["status"] = "queued"
     job["error"] = None
+    job["question"] = None
     job["turns"] = int(job.get("turns") or 1) + 1
     add_step(job, "Follow-up queued")
     return save_job(home, slug, job)

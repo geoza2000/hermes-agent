@@ -337,7 +337,10 @@ function AppDetail({ copy, onBack, slug }: { copy: AppsCopy; onBack: () => void;
         </div>
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
           <RunsCard copy={copy} profile={profile} slug={app.slug} />
-          <SharingCard app={app} baseUrl={baseUrl} copy={copy} profile={profile} run={run} />
+          {/* Apps are personal for now: the public switch only appears to turn an already-public app back off. */}
+          {app.visibility === 'public' && (
+            <SharingCard app={app} baseUrl={baseUrl} copy={copy} profile={profile} run={run} />
+          )}
           <UsageCard app={app} copy={copy} insights={detail.data?.insights} profile={profile} run={run} />
           <VersionsCard app={app} copy={copy} profile={profile} run={run} />
         </aside>
@@ -512,6 +515,7 @@ function VersionsCard({ app, copy, profile, run }: CardProps) {
 }
 
 const ACTIVE_JOB = new Set<AppJob['status']>(['needs_input', 'queued', 'running'])
+const NEEDS_YOU = new Set<AppJob['status']>(['failed', 'needs_input', 'waiting'])
 
 /** Requests this app handed to Hermes. Each runs as an `apps` session, grouped under Apps in the sidebar. */
 function RunsCard({ copy, profile, slug }: { copy: AppsCopy; profile: null | string; slug: string }) {
@@ -542,7 +546,7 @@ function RunsCard({ copy, profile, slug }: { copy: AppsCopy; profile: null | str
                 </div>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
-                <Pill tone={job.status === 'needs_input' || job.status === 'failed' ? 'accent' : 'muted'}>
+                <Pill tone={NEEDS_YOU.has(job.status) ? 'accent' : 'muted'}>
                   {copy.runStatus[job.status]}
                 </Pill>
                 {job.session_id && (

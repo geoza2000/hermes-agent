@@ -97,6 +97,8 @@
     constructor(data) { this._set(data); }
     _set(data) { Object.assign(this, data); return this; }
     get done() { return this.status === 'done' || this.status === 'failed'; }
+    // Asked a question nobody answered in time: answer() later resumes the same session.
+    get pending() { return this.status === 'waiting' || this.status === 'needs_input'; }
     async refresh() { return this._set((await call(sessionsUrl + '/' + this.id)).session); }
     async answer(answers) { return this._set((await postJson(sessionsUrl + '/' + this.id + '/answer', { answers })).session); }
     async send(message) { return this._set((await postJson(sessionsUrl + '/' + this.id + '/message', { message })).session); }
@@ -114,7 +116,7 @@
           if (answers) await this.answer(answers);
           continue;
         }
-        if (this.done) return this;
+        if (this.done || this.status === 'waiting') return this;
         await sleep(opts.interval);
       }
     }
@@ -136,7 +138,11 @@
     },
     async run(request, waitOptions) { return (await sessions.start(request)).wait(waitOptions); },
     async get(id) { needOwner(); return new Job((await call(sessionsUrl + '/' + encodeURIComponent(id))).session); },
-    async list() { needOwner(); return (await call(sessionsUrl)).sessions.map(item => new Job(item)); }
+    async list(options) {
+      needOwner();
+      const query = options && options.pending ? '?pending=1' : '';
+      return (await call(sessionsUrl + query)).sessions.map(item => new Job(item));
+    }
   };
 
   // Default question form for session.wait(): one card per question, choices + "Other".

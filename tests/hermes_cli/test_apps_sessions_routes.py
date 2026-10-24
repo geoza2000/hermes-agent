@@ -80,6 +80,23 @@ def test_json_requests_answers_and_follow_ups(client, home, launches):
     assert followed.json()["session"]["status"] == "queued" and len(launches) == 2
 
 
+def test_answering_a_parked_question_relaunches_the_session_and_pending_filters(client, home, launches):
+    base = _base(client)
+    session = client.post(f"{base}_hermes/sessions", content=json.dumps({"prompt": "x"})).json()["session"]
+    other = client.post(f"{base}_hermes/sessions", content=json.dumps({"prompt": "y"})).json()["session"]
+    job = apps_jobs.load_job(home, "invoices", session["id"])
+    job.update(status="waiting", session_id="s1",
+               question={"ask_id": "a1", "questions": [{"qid": "q0", "question": "Supplier?"}]})
+    apps_jobs.save_job(home, "invoices", job)
+
+    pending = client.get(f"{base}_hermes/sessions?pending=1").json()["sessions"]
+    assert [s["id"] for s in pending] == [session["id"]] and other["id"] != session["id"]
+    launched = len(launches)
+    r = client.post(f"{base}_hermes/sessions/{session['id']}/answer", content=json.dumps({"answers": {"q0": "Acme"}}))
+    assert r.status_code == 200 and r.json()["session"]["status"] == "queued"
+    assert len(launches) == launched + 1 and "resume" not in r.json()["session"]
+
+
 def test_bad_requests_and_unknown_jobs(client, home, launches):
     base = _base(client)
     assert client.post(f"{base}_hermes/sessions", content="{}").status_code == 400

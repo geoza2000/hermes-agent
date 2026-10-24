@@ -21,7 +21,8 @@ from typing import Any, Callable, Optional
 from hermes_cli import apps_jobs
 from hermes_cli.apps_store import load_manifest
 
-ANSWER_TIMEOUT_SECONDS = 30 * 60
+# How long a live turn waits for the app to answer before ending and leaving the question pending.
+ANSWER_TIMEOUT_SECONDS = 120
 _POLL_SECONDS = 0.5
 _UNATTENDED_ENV_DROP = (
     "HERMES_YOLO_MODE", "HERMES_INTERACTIVE", "HERMES_SINGLE_QUERY_SESSION", "HERMES_SESSION_SOURCE",
@@ -67,6 +68,7 @@ class _JobState:
 
     def __init__(self, home: Path, slug: str, job: dict[str, Any]):
         self.home, self.slug, self.job = home, slug, job
+        self.waiting: Optional[dict] = None
         self._lock = threading.Lock()
 
     def update(self, step: Optional[str] = None, **changes: Any) -> None:
@@ -93,9 +95,12 @@ def _clarify_callback(state: _JobState, timeout: float) -> Callable[[list], dict
                 state.update("Answer received", status="running", question=None)
                 return {"answers": reply.get("answers") or {}, "outcome": "submitted"}
             time.sleep(_POLL_SECONDS)
-        state.update("No answer in time", status="running", question=None)
+        state.waiting = question
+        state.update("Waiting for your answer later", status="running", question=question)
         return {"answers": {}, "outcome": "timed_out", "notice": (
-            "The app user did not answer in time. Use your best judgment, say what you assumed, and finish.")}
+            "The app user is not available right now and will answer later; their answer arrives as "
+            "the next message in this session. Do not guess and do not continue the task: end this "
+            "turn now with one short sentence saying what you are waiting for.")}
 
     return ask
 
@@ -182,6 +187,10 @@ def run_job(home: Path, slug: str, job_id: str, *, run_turn: Optional[RunTurn] =
         return 1
     if not followup:
         _title_session(session_id, manifest, job)
+    if state.waiting is not None:
+        state.update("Waiting for your answer", status="waiting", session_id=session_id,
+                     question=state.waiting, result=apps_jobs.parse_result(final))
+        return 0
     state.update("Done", status="done", session_id=session_id, question=None,
                  result=apps_jobs.parse_result(final))
     return 0

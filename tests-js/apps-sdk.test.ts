@@ -91,6 +91,26 @@ describe('hermes.session', () => {
     expect(calls.every(c => c.url.startsWith(BASE))).toBe(true)
   })
 
+  it('returns a parked request from wait() and lists pending requests for later answers', async () => {
+    const parked = job('waiting', { question: { ask_id: 'a1', questions: [{ qid: 'q0', question: 'Supplier?' }] } })
+
+    const { calls, hermes } = loadRuntime({
+      [`GET ${BASE}_hermes/sessions/abcdefabcdef`]: () => parked,
+      [`GET ${BASE}_hermes/sessions?pending=1`]: () => ({ sessions: [parked.session] }),
+      [`POST ${BASE}_hermes/sessions`]: () => job('queued')
+    })
+
+    const onQuestion = vi.fn()
+    const started = (await hermes.session.start({ prompt: 'x' })) as { wait: (o: object) => Promise<{ pending: boolean; status: string }> }
+    const result = await started.wait({ interval: 1, onQuestion })
+    expect(result.status).toBe('waiting')
+    expect(result.pending).toBe(true)
+    expect(onQuestion).not.toHaveBeenCalled()
+    const list = (await (hermes.session as unknown as { list: (o: object) => Promise<{ id: string }[]> }).list({ pending: true }))
+    expect(list.map(j => j.id)).toEqual(['abcdefabcdef'])
+    expect(calls.some(c => c.url.endsWith('?pending=1'))).toBe(true)
+  })
+
   it('is unavailable to public viewers and never calls the server', async () => {
     const { calls, hermes } = loadRuntime({}, { owner: false })
     expect(hermes.session.available).toBe(false)

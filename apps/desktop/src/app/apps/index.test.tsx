@@ -142,14 +142,20 @@ describe('AppsView', () => {
     expect(screen.getByText('click: button: New invoice')).toBeTruthy()
   })
 
-  it('asks before making an app public and only then patches visibility', async () => {
+  it('keeps apps personal: no Make public switch, but a public app can be made private again', async () => {
     renderView('/apps?app=invoices')
-    fireEvent.click(await screen.findByRole('button', { name: 'Make public' }))
-    expect(mocks.updateApp).not.toHaveBeenCalled()
+    expect(await screen.findByText('Invoices', { selector: 'h1, h2, h3, div' })).toBeTruthy()
+    await screen.findByRole('button', { name: 'Restore' })
+    expect(screen.queryByRole('button', { name: 'Make public' })).toBeNull()
 
-    const confirm = (await screen.findAllByRole('button', { name: 'Make public' })).at(-1)!
-    fireEvent.click(confirm)
-    await waitFor(() => expect(mocks.updateApp).toHaveBeenCalledWith('invoices', { visibility: 'public' }, 'alpha'))
+    cleanup()
+    const shared = { ...invoices, visibility: 'public' as const, public_path: '/apps-public/alpha/invoices/' }
+    mocks.listApps.mockResolvedValue({ apps: [shared], profile: 'alpha' })
+    mocks.getApp.mockResolvedValue({ app: shared, insights, data_keys: 1 })
+    mocks.updateApp.mockResolvedValue({ app: invoices })
+    renderView('/apps?app=invoices')
+    fireEvent.click(await screen.findByRole('button', { name: 'Make private' }))
+    await waitFor(() => expect(mocks.updateApp).toHaveBeenCalledWith('invoices', { visibility: 'private' }, 'alpha'))
   })
 
   it('restores an earlier version from the versions list', async () => {

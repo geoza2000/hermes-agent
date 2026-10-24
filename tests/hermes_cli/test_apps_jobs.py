@@ -94,12 +94,25 @@ def test_worker_routes_a_question_to_the_app_and_stores_the_result(home):
     assert str(apps_jobs.job_dir(home, "invoices", job["id"]) / "files" / "inv.pdf") in call["prompt"]
 
 
-def test_unanswered_question_times_out_and_the_session_still_finishes(home):
+def test_unanswered_question_parks_the_request_and_a_later_answer_resumes_the_session(home):
     job = apps_jobs.create_job(home, "invoices", "Process")
-    assert apps_job_runner.run_job(home, "invoices", job["id"], run_turn=FakeModel(), answer_timeout=0.2) == 0
-    done = apps_jobs.load_job(home, "invoices", job["id"])
-    assert done["status"] == "done" and done["result"]["json"]["supplier"] == "unknown"
-    assert "No answer in time" in [s["text"] for s in done["steps"]]
+    model = FakeModel()
+    assert apps_job_runner.run_job(home, "invoices", job["id"], run_turn=model, answer_timeout=0.2) == 0
+    parked = apps_jobs.load_job(home, "invoices", job["id"])
+    assert parked["status"] == "waiting" and parked["session_id"] == "sess-apps-1"
+    assert parked["question"]["questions"][0]["question"] == "Which supplier?"
+    assert [j["id"] for j in apps_jobs.list_jobs(home, "invoices", pending=True)] == [job["id"]]
+    assert apps_jobs.active_jobs(home, "invoices") == 0, "a parked question must not block new work"
+
+    resumed = apps_jobs.submit_answer(home, "invoices", job["id"], {"q0": "Northwind"})
+    assert resumed["resume"] is True and resumed["status"] == "queued" and resumed["question"] is None
+    model.ask = False
+    apps_job_runner.run_job(home, "invoices", job["id"], run_turn=model)
+    second = model.calls[1]
+    assert second["resume"] == "sess-apps-1"
+    assert "Which supplier? Northwind" in second["prompt"]
+    assert apps_jobs.load_job(home, "invoices", job["id"])["status"] == "done"
+    assert apps_jobs.list_jobs(home, "invoices", pending=True) == []
 
 
 def test_follow_up_resumes_the_same_session_and_failures_reach_the_app(home):

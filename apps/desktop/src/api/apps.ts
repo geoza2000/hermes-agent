@@ -53,7 +53,7 @@ export interface AppLink {
   mode: 'live' | 'preview'
 }
 
-export type AppJobStatus = 'done' | 'failed' | 'needs_input' | 'queued' | 'running'
+export type AppJobStatus = 'done' | 'failed' | 'needs_input' | 'queued' | 'running' | 'waiting'
 
 /** One request an app handed to Hermes (`hermes_cli/apps_jobs.py` public view). */
 export interface AppJob {

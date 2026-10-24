@@ -64,6 +64,7 @@ hermes apps jobs invoices
 | Show progress | `onUpdate(job)` gets `job.status` and `job.steps`; `job.result.text` / `job.result.json` when done |
 | Questions | Default: `hermes.ui.question` shows a form. Custom: pass `onQuestion: async q => ({ q0: 'answer' })` |
 | Continue the conversation | `await job.send('Also mark it paid')` then `await job.wait()` |
+| Unanswered questions | `await hermes.session.list({ pending: true })` on open; `await job.answer({ q0: '…' })` resumes it |
 
 The runtime (`window.hermes`) is injected into every HTML page automatically. Do not add it yourself.
 
@@ -85,7 +86,7 @@ The runtime (`window.hermes`) is injected into every HTML page automatically. Do
    or describe what changed. Never claim a visual result you have not checked.
 7. **Publish only after approval** of the exact change: `hermes apps publish <slug> --note "<what changed>"`.
    A previous version is always one `hermes apps rollback` away.
-8. **Never change visibility on your own.** Public apps are reachable by anyone with the link. Set
+8. **Apps are personal for now.** Never change visibility on your own. Public apps are reachable by anyone with the link. Set
    `--visibility public` only when the user explicitly asks, and remind them their app data stays private.
 
 ### Apps that hand work to Hermes
@@ -101,11 +102,14 @@ the rules, and the Hermes session does the work.
 3. Each request runs as its own Hermes session tagged `apps`. Desktop groups these under **Apps**
    in the sidebar, and the app's page lists them with an Open session link.
 4. The session asks with the `clarify` tool; the question appears in the app and the answer
-   returns to the same turn. Unanswered questions time out after 30 minutes.
+   returns to the same turn. If nobody answers within 2 minutes, the turn ends and the request
+   becomes `waiting` (question and session id kept). `job.wait()` returns it with `job.pending`
+   true. On open, list `hermes.session.list({ pending: true })` and show what needs input;
+   `job.answer(...)` later resumes the same session. The app owns how it shows pending items.
 5. For structured results, the prompt asks for a final fenced `json` block; the app reads
    `job.result.json`. Either the app saves it with `hermes.data.set`, or the session saves it with
    `hermes apps data set`. Pick one owner per record to avoid double writes.
-6. Sessions are owner-only and unattended: dangerous commands are refused unless the owner set
+6. Apps are personal: sessions are owner-only and unattended: dangerous commands are refused unless the owner set
    `approvals.unattended_mode: approve`. At most two requests per app run at once.
 
 ### Improving from usage

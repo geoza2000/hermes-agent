@@ -469,7 +469,8 @@ async def _session_op(view: _View, request: Request, op: str, job_id: str) -> di
         return await asyncio.to_thread(apps_jobs.load_job, home, slug, job_id)
     if op == "answer":
         answers = (await _json_body(request)).get("answers")
-        return await asyncio.to_thread(apps_jobs.submit_answer, home, slug, job_id, answers)
+        job = await asyncio.to_thread(apps_jobs.submit_answer, home, slug, job_id, answers)
+        return await asyncio.to_thread(_launch, view, job_id) if job.get("resume") else job
     if op == "create":
         prompt, files, context = await _session_request(request)
         job = await asyncio.to_thread(apps_jobs.create_job, home, slug, prompt, files=files, context=context)
@@ -485,7 +486,8 @@ async def _sessions(view: Optional[_View], request: Request, op: str, job_id: st
         return denied or _not_found()
     try:
         if op == "list":
-            jobs = await asyncio.to_thread(apps_jobs.list_jobs, view.home, view.slug)
+            pending = request.query_params.get("pending") in ("1", "true")
+            jobs = await asyncio.to_thread(apps_jobs.list_jobs, view.home, view.slug, pending=pending)
             return apps_web.json_response({"sessions": [apps_jobs.public_view(j) for j in jobs]})
         job = await _session_op(view, request, op, job_id)
     except apps_store.AppNotFound as exc:
