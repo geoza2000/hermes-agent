@@ -307,7 +307,7 @@ import {
   writeSecretFileAtomic
 } from './hardening'
 import { assertNotPassiveSpawn } from './host-backend-singleton'
-import { HERMES_HUB_FALLBACK_ORIGIN, HERMES_HUB_ORIGIN, isHermesHubClipboardWrite } from './hub-iframe-policy'
+import { HERMES_HUB_FALLBACK_ORIGIN, HERMES_HUB_ORIGIN } from './hub-iframe-policy'
 import { requestHudClose } from './hud-close'
 import { cursorPointInWindow } from './hud-cursor'
 import { startHudGameOverlayWatch } from './hud-game-overlay'
@@ -376,7 +376,7 @@ import {
   waitForManagedUpdateOperations
 } from './managed-ssh-update'
 import { registerMcpOauthCallbackIpc } from './mcp-oauth-callback-ipc'
-import { isMediaCapturePermission } from './media-capture-permission'
+import { installMediaPermissions } from './media-permissions'
 import { createMediaProtocolHandler, MEDIA_PROTOCOL, mediaProtocolDownloadName } from './media-protocol'
 import { fetchLocalMedia } from './media-range'
 import { createMinimizeToTray } from './minimize-to-tray'
@@ -6821,63 +6821,6 @@ function installDownloadHandling() {
       // No Downloads directory to offer — keep Chromium's default prompt.
     }
   })
-}
-
-function installMediaPermissions() {
-  // Async request handler: the prompt-style path (most platforms).
-  // clipboard-sanitized-write is granted ONLY to the exact Skills Hub origins
-  // (hub-iframe-policy.ts): the picker's Copy controls write to the clipboard,
-  // and every other frame — artifact previews included — stays denied.
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    if ((permission as string) === 'clipboard-sanitized-write') {
-      callback(isHermesHubClipboardWrite(focusedFrameOrigin(webContents)))
-
-      return
-    }
-
-    callback(isMediaCapturePermission(permission, details))
-  })
-
-  // Synchronous check handler: Chromium consults this for getUserMedia on
-  // Windows in addition to (or instead of) the request handler. Without it,
-  // the check defaults to false and capture is denied before the request
-  // handler ever runs. The check handler carries no mediaTypes metadata, so
-  // the shared predicate runs with `undefined` details and allows the capture
-  // permissions — identical policy to the request handler below, just without
-  // the metadata refinement (absent metadata is allowed there too).
-  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
-    if ((permission as string) === 'clipboard-sanitized-write') {
-      return isHermesHubClipboardWrite(focusedFrameOrigin(webContents))
-    }
-
-    return isMediaCapturePermission(permission, undefined)
-  })
-}
-
-// Origin of the frame a permission request came from. The request handler is
-// given the webContents of the TOP document (Chromium routes subframe
-// permission requests through it in Electron 40 without exposing the frame
-// directly), so when the top document is NOT on a hub origin we fall back to
-// the request's own `requestingUrl` — the URL the frame actually asked for —
-// whose origin is exact for both hub deployments and `null` for anything
-// sandboxed or opaque.
-function focusedFrameOrigin(
-  webContents: { getURL?: () => string } | null | undefined,
-  details?: { requestingUrl?: string }
-): string | null {
-  try {
-    if (details?.requestingUrl) {
-      return new URL(details.requestingUrl).origin
-    }
-
-    if (webContents?.getURL) {
-      return new URL(webContents.getURL()).origin
-    }
-  } catch {
-    // Unparseable URL — report no origin; callers deny.
-  }
-
-  return null
 }
 
 /** The picker embed URL the hub iframe starts on (both deployments). */
@@ -17915,7 +17858,7 @@ app.whenReady().then(() => {
   // decision lives in the extracted helper.
   enableRendererAccessibility({ appApi: app })
 
-  installMediaPermissions()
+  installMediaPermissions(session.defaultSession, DEV_SERVER || pathToFileURL(resolveRendererIndex()).toString())
   installDownloadHandling()
   registerMediaProtocol()
   installEmbedReferer()
