@@ -76,8 +76,7 @@ import { MultiplexStandaloneBanner } from "@/components/MultiplexStandaloneBanne
 import { SharedMetricsConsentBanner } from "@/components/SharedMetricsConsentBanner";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
-// Route pages are lazy-loaded so the initial dashboard shell does not pay for
-// every admin surface (and heavy deps like xterm) up front.
+const AppsPage = lazy(() => import("@/pages/AppsPage"));
 const ConfigPage = lazy(() => import("@/pages/ConfigPage"));
 const DocsPage = lazy(() => import("@/pages/DocsPage"));
 const EnvPage = lazy(() => import("@/pages/EnvPage"));
@@ -158,6 +157,7 @@ const CHAT_NAV_ITEM: NavItem = {
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/sessions": SessionsPage,
+  "/apps": AppsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
@@ -192,6 +192,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
     label: "Sessions",
     icon: MessageSquare,
   },
+  { path: "/apps", label: "Apps", icon: Puzzle },
   { path: "/files", label: "Files", icon: FolderOpen },
   {
     path: "/analytics",

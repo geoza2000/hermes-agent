@@ -109,6 +109,21 @@ async def list_apps(request: Request, profile: Optional[str] = None):
     return await _scoped(profile, run)
 
 
+@router.post("/api/apps")
+async def create_app(request: Request, profile: Optional[str] = None):
+    _require_token(request)
+    body = await _optional_json(request)
+    slug, name = body.get("slug"), body.get("name")
+    if not isinstance(slug, str) or not isinstance(name, str):
+        raise HTTPException(status_code=400, detail="App id and name must be strings.")
+
+    def run():
+        home, owner = _current_home_and_name()
+        return {"app": _summary(owner, apps_store.create_app(home, slug, name))}
+
+    return await _scoped(profile, run)
+
+
 @router.get("/api/apps/{slug}")
 async def get_app(slug: str, request: Request, profile: Optional[str] = None, days: int = 7):
     _require_token(request)
