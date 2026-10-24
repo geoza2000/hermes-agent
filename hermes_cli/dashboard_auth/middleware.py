@@ -40,7 +40,10 @@ _GATE_PUBLIC_PREFIXES: tuple[str, ...] = (
     "/auth/login", "/auth/callback", "/auth/native/authorize", "/auth/native/token",
     "/auth/native/refresh", "/auth/password-login", "/auth/logout", "/login",
     "/api/auth/providers", "/api/mcp/oauth/callback/",
-    "/assets/", "/dashboard-plugins/", "/favicon.ico", "/ds-assets/", "/fonts/", "/fonts-terminal/")
+    "/assets/", "/dashboard-plugins/", "/favicon.ico", "/ds-assets/", "/fonts/", "/fonts-terminal/",
+    # Hermes Apps run sandboxed (opaque origin), so no cookie can reach them: a signed app link or
+    # the app's own public flag is the boundary, checked in web_routers/apps.py. Never /apps/ itself.
+    "/apps-cap/", "/apps-public/")
 
 
 def _path_is_public(path: str) -> bool:

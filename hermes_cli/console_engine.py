@@ -311,6 +311,9 @@ _CLI_FAMILIES: dict[str, tuple[_CliSurface, str]] = {
         _CliSurface("builder", "hermes_cli.projects_cmd", "build_parser", "cmd_project"),
         "list, show, *create, *add-folder, *remove-folder, *rename, *set-primary, *use, "
         "*archive, *restore, *bind-board"),
+    "apps": (
+        _CliSurface("adder", "hermes_cli.apps_cmd", "add_parser"),
+        "list, show, path, insights, *create, *publish, *rollback, *set"),
     "kanban": (
         _CliSurface("builder", "hermes_cli.kanban", "build_parser", "cmd_kanban"),
         "*init, boards list, *boards create, *boards rm, *boards switch, boards current, "

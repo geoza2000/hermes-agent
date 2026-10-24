@@ -1,0 +1,505 @@
+// Hermes Apps copy, feature-local so the page owns its strings without growing the shared
+// catalog files (each is past the 2,000-line ratchet). Every bundled locale is translated;
+// a runtime-registered locale falls back to English.
+
+import { type BundledLocale, isBundledLocale, type Locale, useI18n } from '@/i18n'
+
+export interface AppsCopy {
+  nav: string
+  title: string
+  search: string
+  refresh: string
+  loading: string
+  loadFailed: string
+  emptyTitle: string
+  emptyBody: string
+  noMatch: string
+  draftOnly: string
+  version: (n: number) => string
+  private: string
+  public: string
+  back: string
+  openInBrowser: string
+  copyPhoneLink: string
+  linkCopied: string
+  iterate: string
+  iteratePrompt: (name: string, slug: string) => string
+  preview: string
+  previewDraft: string
+  previewLive: string
+  notPublished: string
+  frameUnavailable: string
+  sharing: string
+  sharingPrivate: string
+  sharingPublic: string
+  makePublic: string
+  makePrivate: string
+  confirmPublic: string
+  copyPublicLink: string
+  usage: string
+  usageEnabled: string
+  usageValues: string
+  usageValuesHint: string
+  usageSummary: (events: number, sessions: number, days: number) => string
+  topInteractions: string
+  errors: string
+  noUsage: string
+  clearUsage: string
+  usageCleared: string
+  versions: string
+  current: string
+  restore: string
+  restored: (n: number) => string
+  saveFailed: string
+}
+
+const en: AppsCopy = {
+  nav: 'Apps',
+  title: 'Apps',
+  search: 'Search apps…',
+  refresh: 'Refresh apps',
+  loading: 'Loading apps',
+  loadFailed: 'Could not load apps',
+  emptyTitle: 'No apps yet',
+  emptyBody: 'Ask Hermes in any chat to build one, for example “make me an app to track my invoices”.',
+  noMatch: 'No apps match your search.',
+  draftOnly: 'Draft',
+  version: n => `v${n}`,
+  private: 'Private',
+  public: 'Public',
+  back: 'All apps',
+  openInBrowser: 'Open in browser',
+  copyPhoneLink: 'Copy link for phone',
+  linkCopied: 'Link copied. It works for 12 hours; add it to your home screen from the browser.',
+  iterate: 'Iterate in chat',
+  iteratePrompt: (name, slug) => `Let’s keep working on my ${name} app (hermes apps: ${slug}). `,
+  preview: 'Preview',
+  previewDraft: 'Draft',
+  previewLive: 'Live',
+  notPublished: 'Not published yet. Ask Hermes to publish when the draft looks right.',
+  frameUnavailable: 'This connection cannot show apps inline. Use Open in browser.',
+  sharing: 'Sharing',
+  sharingPrivate: 'Only you, signed in to Hermes, can open this app.',
+  sharingPublic: 'Anyone with the link can open this app. Your app data stays private.',
+  makePublic: 'Make public',
+  makePrivate: 'Make private',
+  confirmPublic: 'Make this app public? Anyone with the link can open it. Its saved data stays private.',
+  copyPublicLink: 'Copy public link',
+  usage: 'Usage',
+  usageEnabled: 'Learn from how I use this app',
+  usageValues: 'Include typed values',
+  usageValuesHint: 'Off: Hermes sees that a field changed, never what you typed.',
+  usageSummary: (events, sessions, days) => `${events} events across ${sessions} sessions in the last ${days} days`,
+  topInteractions: 'Most used',
+  errors: 'Errors',
+  noUsage: 'No usage recorded yet.',
+  clearUsage: 'Clear usage history',
+  usageCleared: 'Usage history cleared',
+  versions: 'Versions',
+  current: 'Current',
+  restore: 'Restore',
+  restored: n => `Now serving v${n}`,
+  saveFailed: 'Could not save the change'
+}
+
+const de: AppsCopy = {
+  nav: 'Apps',
+  title: 'Apps',
+  search: 'Apps durchsuchen…',
+  refresh: 'Apps aktualisieren',
+  loading: 'Apps werden geladen',
+  loadFailed: 'Apps konnten nicht geladen werden',
+  emptyTitle: 'Noch keine Apps',
+  emptyBody: 'Bitte Hermes in einem beliebigen Chat, eine zu bauen, zum Beispiel „Bau mir eine App für meine Rechnungen“.',
+  noMatch: 'Keine App passt zur Suche.',
+  draftOnly: 'Entwurf',
+  version: n => `v${n}`,
+  private: 'Privat',
+  public: 'Öffentlich',
+  back: 'Alle Apps',
+  openInBrowser: 'Im Browser öffnen',
+  copyPhoneLink: 'Link fürs Handy kopieren',
+  linkCopied: 'Link kopiert. Er gilt 12 Stunden; im Browser kannst du ihn zum Startbildschirm hinzufügen.',
+  iterate: 'Im Chat weiterentwickeln',
+  iteratePrompt: (name, slug) => `Lass uns an meiner App ${name} weiterarbeiten (hermes apps: ${slug}). `,
+  preview: 'Vorschau',
+  previewDraft: 'Entwurf',
+  previewLive: 'Live',
+  notPublished: 'Noch nicht veröffentlicht. Bitte Hermes, zu veröffentlichen, wenn der Entwurf passt.',
+  frameUnavailable: 'Diese Verbindung kann Apps nicht eingebettet zeigen. Nutze „Im Browser öffnen“.',
+  sharing: 'Freigabe',
+  sharingPrivate: 'Nur du kannst diese App öffnen, angemeldet bei Hermes.',
+  sharingPublic: 'Jeder mit dem Link kann diese App öffnen. Deine App-Daten bleiben privat.',
+  makePublic: 'Öffentlich machen',
+  makePrivate: 'Privat machen',
+  confirmPublic: 'Diese App öffentlich machen? Jeder mit dem Link kann sie öffnen. Gespeicherte Daten bleiben privat.',
+  copyPublicLink: 'Öffentlichen Link kopieren',
+  usage: 'Nutzung',
+  usageEnabled: 'Aus meiner Nutzung dieser App lernen',
+  usageValues: 'Eingegebene Werte einbeziehen',
+  usageValuesHint: 'Aus: Hermes sieht, dass sich ein Feld geändert hat, nie den Inhalt.',
+  usageSummary: (events, sessions, days) => `${events} Ereignisse in ${sessions} Sitzungen in den letzten ${days} Tagen`,
+  topInteractions: 'Am häufigsten genutzt',
+  errors: 'Fehler',
+  noUsage: 'Noch keine Nutzung erfasst.',
+  clearUsage: 'Nutzungsverlauf löschen',
+  usageCleared: 'Nutzungsverlauf gelöscht',
+  versions: 'Versionen',
+  current: 'Aktuell',
+  restore: 'Wiederherstellen',
+  restored: n => `Jetzt läuft v${n}`,
+  saveFailed: 'Änderung konnte nicht gespeichert werden'
+}
+
+const es: AppsCopy = {
+  nav: 'Apps',
+  title: 'Apps',
+  search: 'Buscar apps…',
+  refresh: 'Actualizar apps',
+  loading: 'Cargando apps',
+  loadFailed: 'No se pudieron cargar las apps',
+  emptyTitle: 'Aún no hay apps',
+  emptyBody: 'Pide a Hermes en cualquier chat que cree una, por ejemplo «hazme una app para mis facturas».',
+  noMatch: 'Ninguna app coincide con la búsqueda.',
+  draftOnly: 'Borrador',
+  version: n => `v${n}`,
+  private: 'Privada',
+  public: 'Pública',
+  back: 'Todas las apps',
+  openInBrowser: 'Abrir en el navegador',
+  copyPhoneLink: 'Copiar enlace para el móvil',
+  linkCopied: 'Enlace copiado. Funciona durante 12 horas; añádelo a la pantalla de inicio desde el navegador.',
+  iterate: 'Mejorar en el chat',
+  iteratePrompt: (name, slug) => `Sigamos trabajando en mi app ${name} (hermes apps: ${slug}). `,
+  preview: 'Vista previa',
+  previewDraft: 'Borrador',
+  previewLive: 'Publicada',
+  notPublished: 'Aún no publicada. Pide a Hermes que la publique cuando el borrador esté listo.',
+  frameUnavailable: 'Esta conexión no puede mostrar apps integradas. Usa Abrir en el navegador.',
+  sharing: 'Compartir',
+  sharingPrivate: 'Solo tú, con tu sesión de Hermes, puedes abrir esta app.',
+  sharingPublic: 'Cualquiera con el enlace puede abrir esta app. Tus datos de la app siguen siendo privados.',
+  makePublic: 'Hacer pública',
+  makePrivate: 'Hacer privada',
+  confirmPublic: '¿Hacer pública esta app? Cualquiera con el enlace podrá abrirla. Sus datos guardados siguen siendo privados.',
+  copyPublicLink: 'Copiar enlace público',
+  usage: 'Uso',
+  usageEnabled: 'Aprender de cómo uso esta app',
+  usageValues: 'Incluir valores escritos',
+  usageValuesHint: 'Desactivado: Hermes ve que un campo cambió, nunca lo que escribiste.',
+  usageSummary: (events, sessions, days) => `${events} eventos en ${sessions} sesiones en los últimos ${days} días`,
+  topInteractions: 'Lo más usado',
+  errors: 'Errores',
+  noUsage: 'Aún no hay uso registrado.',
+  clearUsage: 'Borrar historial de uso',
+  usageCleared: 'Historial de uso borrado',
+  versions: 'Versiones',
+  current: 'Actual',
+  restore: 'Restaurar',
+  restored: n => `Ahora se sirve la v${n}`,
+  saveFailed: 'No se pudo guardar el cambio'
+}
+
+const fr: AppsCopy = {
+  nav: 'Apps',
+  title: 'Apps',
+  search: 'Rechercher des apps…',
+  refresh: 'Actualiser les apps',
+  loading: 'Chargement des apps',
+  loadFailed: 'Impossible de charger les apps',
+  emptyTitle: 'Aucune app pour l’instant',
+  emptyBody: 'Demandez à Hermes dans n’importe quel chat d’en créer une, par exemple « fais-moi une app pour mes factures ».',
+  noMatch: 'Aucune app ne correspond à la recherche.',
+  draftOnly: 'Brouillon',
+  version: n => `v${n}`,
+  private: 'Privée',
+  public: 'Publique',
+  back: 'Toutes les apps',
+  openInBrowser: 'Ouvrir dans le navigateur',
+  copyPhoneLink: 'Copier le lien pour le téléphone',
+  linkCopied: 'Lien copié. Il reste valable 12 heures ; ajoutez-le à l’écran d’accueil depuis le navigateur.',
+  iterate: 'Améliorer dans le chat',
+  iteratePrompt: (name, slug) => `Continuons à travailler sur mon app ${name} (hermes apps : ${slug}). `,
+  preview: 'Aperçu',
+  previewDraft: 'Brouillon',
+  previewLive: 'En ligne',
+  notPublished: 'Pas encore publiée. Demandez à Hermes de la publier quand le brouillon vous convient.',
+  frameUnavailable: 'Cette connexion ne peut pas afficher les apps intégrées. Utilisez Ouvrir dans le navigateur.',
+  sharing: 'Partage',
+  sharingPrivate: 'Vous seul, connecté à Hermes, pouvez ouvrir cette app.',
+  sharingPublic: 'Toute personne disposant du lien peut ouvrir cette app. Vos données restent privées.',
+  makePublic: 'Rendre publique',
+  makePrivate: 'Rendre privée',
+  confirmPublic: 'Rendre cette app publique ? Toute personne disposant du lien pourra l’ouvrir. Ses données enregistrées restent privées.',
+  copyPublicLink: 'Copier le lien public',
+  usage: 'Utilisation',
+  usageEnabled: 'Apprendre de ma façon d’utiliser cette app',
+  usageValues: 'Inclure les valeurs saisies',
+  usageValuesHint: 'Désactivé : Hermes voit qu’un champ a changé, jamais ce que vous avez saisi.',
+  usageSummary: (events, sessions, days) => `${events} événements sur ${sessions} sessions ces ${days} derniers jours`,
+  topInteractions: 'Les plus utilisés',
+  errors: 'Erreurs',
+  noUsage: 'Aucune utilisation enregistrée pour l’instant.',
+  clearUsage: 'Effacer l’historique d’utilisation',
+  usageCleared: 'Historique d’utilisation effacé',
+  versions: 'Versions',
+  current: 'Actuelle',
+  restore: 'Restaurer',
+  restored: n => `La v${n} est maintenant servie`,
+  saveFailed: 'Impossible d’enregistrer la modification'
+}
+
+const ja: AppsCopy = {
+  nav: 'アプリ',
+  title: 'アプリ',
+  search: 'アプリを検索…',
+  refresh: 'アプリを更新',
+  loading: 'アプリを読み込み中',
+  loadFailed: 'アプリを読み込めませんでした',
+  emptyTitle: 'アプリはまだありません',
+  emptyBody: 'どのチャットでも Hermes に作成を頼めます。例:「請求書を管理するアプリを作って」。',
+  noMatch: '検索に一致するアプリはありません。',
+  draftOnly: '下書き',
+  version: n => `v${n}`,
+  private: '非公開',
+  public: '公開',
+  back: 'すべてのアプリ',
+  openInBrowser: 'ブラウザで開く',
+  copyPhoneLink: 'スマホ用リンクをコピー',
+  linkCopied: 'リンクをコピーしました。12時間有効です。ブラウザからホーム画面に追加できます。',
+  iterate: 'チャットで改善',
+  iteratePrompt: (name, slug) => `${name} アプリの作業を続けましょう (hermes apps: ${slug})。`,
+  preview: 'プレビュー',
+  previewDraft: '下書き',
+  previewLive: '公開版',
+  notPublished: 'まだ公開されていません。下書きがよければ Hermes に公開を頼んでください。',
+  frameUnavailable: 'この接続ではアプリを埋め込み表示できません。「ブラウザで開く」を使ってください。',
+  sharing: '共有',
+  sharingPrivate: 'Hermes にサインインしたあなただけがこのアプリを開けます。',
+  sharingPublic: 'リンクを知っている人は誰でもこのアプリを開けます。アプリのデータは非公開のままです。',
+  makePublic: '公開する',
+  makePrivate: '非公開にする',
+  confirmPublic: 'このアプリを公開しますか?リンクを知っている人は誰でも開けます。保存データは非公開のままです。',
+  copyPublicLink: '公開リンクをコピー',
+  usage: '利用状況',
+  usageEnabled: 'このアプリの使い方から学習する',
+  usageValues: '入力した値を含める',
+  usageValuesHint: 'オフ: Hermes は項目が変わったことだけを把握し、入力内容は見ません。',
+  usageSummary: (events, sessions, days) => `過去${days}日間で${sessions}セッション、${events}件のイベント`,
+  topInteractions: 'よく使う操作',
+  errors: 'エラー',
+  noUsage: 'まだ利用記録はありません。',
+  clearUsage: '利用履歴を消去',
+  usageCleared: '利用履歴を消去しました',
+  versions: 'バージョン',
+  current: '現在',
+  restore: '復元',
+  restored: n => `v${n} を配信中`,
+  saveFailed: '変更を保存できませんでした'
+}
+
+const ru: AppsCopy = {
+  nav: 'Приложения',
+  title: 'Приложения',
+  search: 'Поиск приложений…',
+  refresh: 'Обновить приложения',
+  loading: 'Загрузка приложений',
+  loadFailed: 'Не удалось загрузить приложения',
+  emptyTitle: 'Приложений пока нет',
+  emptyBody: 'Попросите Hermes в любом чате создать приложение, например: «сделай приложение для моих счетов».',
+  noMatch: 'Нет приложений, подходящих под запрос.',
+  draftOnly: 'Черновик',
+  version: n => `v${n}`,
+  private: 'Личное',
+  public: 'Публичное',
+  back: 'Все приложения',
+  openInBrowser: 'Открыть в браузере',
+  copyPhoneLink: 'Скопировать ссылку для телефона',
+  linkCopied: 'Ссылка скопирована. Она действует 12 часов; добавьте её на главный экран из браузера.',
+  iterate: 'Доработать в чате',
+  iteratePrompt: (name, slug) => `Давай продолжим работу над моим приложением ${name} (hermes apps: ${slug}). `,
+  preview: 'Предпросмотр',
+  previewDraft: 'Черновик',
+  previewLive: 'Опубликовано',
+  notPublished: 'Ещё не опубликовано. Попросите Hermes опубликовать, когда черновик готов.',
+  frameUnavailable: 'Это подключение не может показывать приложения внутри окна. Используйте «Открыть в браузере».',
+  sharing: 'Доступ',
+  sharingPrivate: 'Открыть приложение можете только вы, войдя в Hermes.',
+  sharingPublic: 'Любой, у кого есть ссылка, может открыть приложение. Данные приложения остаются личными.',
+  makePublic: 'Сделать публичным',
+  makePrivate: 'Сделать личным',
+  confirmPublic: 'Сделать приложение публичным? Любой со ссылкой сможет его открыть. Сохранённые данные останутся личными.',
+  copyPublicLink: 'Скопировать публичную ссылку',
+  usage: 'Использование',
+  usageEnabled: 'Учиться на том, как я пользуюсь приложением',
+  usageValues: 'Учитывать введённые значения',
+  usageValuesHint: 'Выкл.: Hermes видит, что поле изменилось, но не видит, что вы ввели.',
+  usageSummary: (events, sessions, days) => `${events} событий в ${sessions} сеансах за последние ${days} дн.`,
+  topInteractions: 'Чаще всего',
+  errors: 'Ошибки',
+  noUsage: 'Использование пока не записано.',
+  clearUsage: 'Очистить историю использования',
+  usageCleared: 'История использования очищена',
+  versions: 'Версии',
+  current: 'Текущая',
+  restore: 'Вернуть',
+  restored: n => `Сейчас работает v${n}`,
+  saveFailed: 'Не удалось сохранить изменение'
+}
+
+const zh: AppsCopy = {
+  nav: '应用',
+  title: '应用',
+  search: '搜索应用…',
+  refresh: '刷新应用',
+  loading: '正在加载应用',
+  loadFailed: '无法加载应用',
+  emptyTitle: '还没有应用',
+  emptyBody: '在任意对话中让 Hermes 帮你构建一个,例如“帮我做一个管理发票的应用”。',
+  noMatch: '没有匹配的应用。',
+  draftOnly: '草稿',
+  version: n => `v${n}`,
+  private: '私有',
+  public: '公开',
+  back: '全部应用',
+  openInBrowser: '在浏览器中打开',
+  copyPhoneLink: '复制手机链接',
+  linkCopied: '链接已复制,12 小时内有效;可在浏览器中添加到主屏幕。',
+  iterate: '在对话中改进',
+  iteratePrompt: (name, slug) => `我们继续完善我的 ${name} 应用吧(hermes apps: ${slug})。`,
+  preview: '预览',
+  previewDraft: '草稿',
+  previewLive: '线上版',
+  notPublished: '尚未发布。草稿满意后,让 Hermes 发布即可。',
+  frameUnavailable: '此连接无法内嵌显示应用,请使用“在浏览器中打开”。',
+  sharing: '共享',
+  sharingPrivate: '只有登录 Hermes 的你可以打开此应用。',
+  sharingPublic: '任何拿到链接的人都能打开此应用。应用数据仍为私有。',
+  makePublic: '设为公开',
+  makePrivate: '设为私有',
+  confirmPublic: '要公开此应用吗?任何拿到链接的人都能打开。已保存的数据仍为私有。',
+  copyPublicLink: '复制公开链接',
+  usage: '使用情况',
+  usageEnabled: '从我使用此应用的方式中学习',
+  usageValues: '包含输入的内容',
+  usageValuesHint: '关闭时:Hermes 只知道字段变了,看不到你输入的内容。',
+  usageSummary: (events, sessions, days) => `最近 ${days} 天 ${sessions} 次会话,共 ${events} 个事件`,
+  topInteractions: '最常用',
+  errors: '错误',
+  noUsage: '暂无使用记录。',
+  clearUsage: '清除使用记录',
+  usageCleared: '使用记录已清除',
+  versions: '版本',
+  current: '当前',
+  restore: '恢复',
+  restored: n => `当前运行 v${n}`,
+  saveFailed: '无法保存更改'
+}
+
+const zhHant: AppsCopy = {
+  nav: '應用程式',
+  title: '應用程式',
+  search: '搜尋應用程式…',
+  refresh: '重新整理應用程式',
+  loading: '正在載入應用程式',
+  loadFailed: '無法載入應用程式',
+  emptyTitle: '還沒有應用程式',
+  emptyBody: '在任何對話中請 Hermes 幫你建立一個,例如「幫我做一個管理發票的應用程式」。',
+  noMatch: '沒有符合的應用程式。',
+  draftOnly: '草稿',
+  version: n => `v${n}`,
+  private: '私人',
+  public: '公開',
+  back: '所有應用程式',
+  openInBrowser: '在瀏覽器中開啟',
+  copyPhoneLink: '複製手機連結',
+  linkCopied: '已複製連結,12 小時內有效;可在瀏覽器中加入主畫面。',
+  iterate: '在對話中改進',
+  iteratePrompt: (name, slug) => `我們繼續改進我的 ${name} 應用程式吧(hermes apps: ${slug})。`,
+  preview: '預覽',
+  previewDraft: '草稿',
+  previewLive: '線上版',
+  notPublished: '尚未發布。草稿滿意後,請 Hermes 發布即可。',
+  frameUnavailable: '此連線無法內嵌顯示應用程式,請使用「在瀏覽器中開啟」。',
+  sharing: '分享',
+  sharingPrivate: '只有登入 Hermes 的你可以開啟此應用程式。',
+  sharingPublic: '任何擁有連結的人都能開啟此應用程式。應用程式資料仍為私人。',
+  makePublic: '設為公開',
+  makePrivate: '設為私人',
+  confirmPublic: '要公開此應用程式嗎?任何擁有連結的人都能開啟。已儲存的資料仍為私人。',
+  copyPublicLink: '複製公開連結',
+  usage: '使用情況',
+  usageEnabled: '從我使用此應用程式的方式中學習',
+  usageValues: '包含輸入的內容',
+  usageValuesHint: '關閉時:Hermes 只知道欄位變更了,看不到你輸入的內容。',
+  usageSummary: (events, sessions, days) => `最近 ${days} 天 ${sessions} 個工作階段,共 ${events} 個事件`,
+  topInteractions: '最常用',
+  errors: '錯誤',
+  noUsage: '尚無使用紀錄。',
+  clearUsage: '清除使用紀錄',
+  usageCleared: '已清除使用紀錄',
+  versions: '版本',
+  current: '目前',
+  restore: '還原',
+  restored: n => `目前執行 v${n}`,
+  saveFailed: '無法儲存變更'
+}
+
+const ar: AppsCopy = {
+  nav: 'التطبيقات',
+  title: 'التطبيقات',
+  search: 'ابحث في التطبيقات…',
+  refresh: 'تحديث التطبيقات',
+  loading: 'جار تحميل التطبيقات',
+  loadFailed: 'تعذر تحميل التطبيقات',
+  emptyTitle: 'لا توجد تطبيقات بعد',
+  emptyBody: 'اطلب من Hermes في أي محادثة أن يبني تطبيقًا، مثل «اصنع لي تطبيقًا لمتابعة فواتيري».',
+  noMatch: 'لا توجد تطبيقات مطابقة للبحث.',
+  draftOnly: 'مسودة',
+  version: n => `v${n}`,
+  private: 'خاص',
+  public: 'عام',
+  back: 'كل التطبيقات',
+  openInBrowser: 'فتح في المتصفح',
+  copyPhoneLink: 'نسخ رابط للهاتف',
+  linkCopied: 'تم نسخ الرابط. يعمل لمدة 12 ساعة، ويمكنك إضافته إلى الشاشة الرئيسية من المتصفح.',
+  iterate: 'التطوير في المحادثة',
+  iteratePrompt: (name, slug) => `لنواصل العمل على تطبيق ${name} (hermes apps: ${slug}). `,
+  preview: 'معاينة',
+  previewDraft: 'مسودة',
+  previewLive: 'منشور',
+  notPublished: 'لم يُنشر بعد. اطلب من Hermes نشره عندما تصبح المسودة جاهزة.',
+  frameUnavailable: 'لا يمكن لهذا الاتصال عرض التطبيقات داخل النافذة. استخدم «فتح في المتصفح».',
+  sharing: 'المشاركة',
+  sharingPrivate: 'أنت فقط، بعد تسجيل الدخول إلى Hermes، يمكنك فتح هذا التطبيق.',
+  sharingPublic: 'يمكن لأي شخص لديه الرابط فتح هذا التطبيق. تبقى بيانات التطبيق خاصة.',
+  makePublic: 'جعله عامًا',
+  makePrivate: 'جعله خاصًا',
+  confirmPublic: 'هل تريد جعل هذا التطبيق عامًا؟ يمكن لأي شخص لديه الرابط فتحه. تبقى البيانات المحفوظة خاصة.',
+  copyPublicLink: 'نسخ الرابط العام',
+  usage: 'الاستخدام',
+  usageEnabled: 'التعلم من طريقة استخدامي لهذا التطبيق',
+  usageValues: 'تضمين القيم المكتوبة',
+  usageValuesHint: 'عند الإيقاف: يرى Hermes أن حقلًا تغيّر، ولا يرى ما كتبته.',
+  usageSummary: (events, sessions, days) => `${events} حدثًا عبر ${sessions} جلسة خلال آخر ${days} أيام`,
+  topInteractions: 'الأكثر استخدامًا',
+  errors: 'الأخطاء',
+  noUsage: 'لم يُسجل أي استخدام بعد.',
+  clearUsage: 'مسح سجل الاستخدام',
+  usageCleared: 'تم مسح سجل الاستخدام',
+  versions: 'الإصدارات',
+  current: 'الحالي',
+  restore: 'استعادة',
+  restored: n => `يتم الآن تشغيل v${n}`,
+  saveFailed: 'تعذر حفظ التغيير'
+}
+
+export const APPS_COPY: Record<BundledLocale, AppsCopy> = { ar, de, en, es, fr, ja, ru, zh, 'zh-hant': zhHant }
+
+export function appsCopyFor(locale: Locale | null | undefined): AppsCopy {
+  return locale && isBundledLocale(locale) ? APPS_COPY[locale] : en
+}
+
+export function useAppsCopy(): AppsCopy {
+  return appsCopyFor(useI18n().locale)
+}

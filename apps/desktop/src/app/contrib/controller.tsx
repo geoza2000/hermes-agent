@@ -97,6 +97,7 @@ import { watchUnreadWriteGuard } from '@/store/session-unread-remote'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { isBrowserWindow, isHudWindow } from '@/store/windows'
 
+import { registerAppsSurface } from '../apps/register'
 import { BrowserPopoutShell } from '../chat/browser-popout-shell'
 import type { SessionDragPayload } from '../chat/composer/inline-refs'
 import { watchPreviewTiles } from '../chat/preview-tile'
@@ -189,6 +190,8 @@ const workspaceTabDrag = (event: ReactPointerEvent<HTMLElement>, onTap: () => vo
 
   return true
 }
+
+registerAppsSurface()
 
 registry.registerMany([
   {

@@ -2767,9 +2767,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
         "model", "monitoring", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
-        "project", "proxy",
-        "prompt-size",
-        "resume",
+        "project", "proxy", "prompt-size", "resume", "apps",
         "send", "sessions", "setup",
         "skin", "skills", "slack", "status", "tools", "uninstall", "update",
         "usage", "vault",
@@ -3343,6 +3341,8 @@ def _build_cli_parser():
 
     from hermes_cli.projects_cmd import build_parser as _build_project_parser
     _build_project_parser(subparsers).set_defaults(func=cmd_project)
+    from hermes_cli.apps_cmd import add_parser as _add_apps_parser
+    _add_apps_parser(subparsers)
 
     build_hooks_parser(subparsers, cmd_hooks=cmd_hooks)
     build_doctor_parser(subparsers, cmd_doctor=cmd_doctor)
