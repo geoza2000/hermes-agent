@@ -181,6 +181,22 @@ def _all_jobs(home: Path, slug: str) -> list[dict[str, Any]]:
     return jobs
 
 
+def session_index(home: Path) -> dict[str, Any]:
+    """``{apps: {slug: {name, icon}}, sessions: {session_id: slug}}`` across a profile's apps.
+
+    Built from the job records, so sessions are grouped by app without adding chat metadata."""
+    from hermes_cli.apps_store import list_apps
+
+    apps, sessions = {}, {}
+    for app in list_apps(home):
+        slug = app["slug"]
+        apps[slug] = {"name": app.get("name") or slug, "icon": app.get("icon") or ""}
+        for job in _all_jobs(home, slug):
+            if job.get("session_id"):
+                sessions[job["session_id"]] = slug
+    return {"apps": apps, "sessions": sessions}
+
+
 def public_view(job: dict[str, Any]) -> dict[str, Any]:
     """What the app sees: no filesystem paths, the prompt echoed back for its own history."""
     keys = ("id", "status", "created_at", "updated_at", "prompt", "files", "session_id", "steps",

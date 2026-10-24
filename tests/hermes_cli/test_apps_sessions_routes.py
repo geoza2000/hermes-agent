@@ -127,3 +127,17 @@ def test_spawn_failure_is_reported_on_the_job(client, home, monkeypatch):
     monkeypatch.setattr(apps_job_launcher, "launch_job_worker", refuse)
     r = client.post(f"{_base(client)}_hermes/sessions", content=json.dumps({"prompt": "x"}))
     assert r.json()["session"]["status"] == "failed" and "no such interpreter" in r.json()["session"]["error"]
+
+
+def test_session_index_maps_each_app_session_to_its_app(client, home, launches):
+    apps_store.create_app(home, "beat", "Beat Lab", icon="🎛️")
+    for slug, sid in (("invoices", "s-inv"), ("beat", "s-beat")):
+        job = apps_jobs.create_job(home, slug, "x")
+        job["session_id"] = sid
+        apps_jobs.save_job(home, slug, job)
+    apps_jobs.create_job(home, "invoices", "not started yet")
+
+    index = client.get("/api/apps-sessions", headers=AUTH).json()
+    assert index["sessions"] == {"s-inv": "invoices", "s-beat": "beat"}
+    assert index["apps"]["beat"] == {"name": "Beat Lab", "icon": "🎛️"}
+    assert client.get("/api/apps-sessions").status_code == 401

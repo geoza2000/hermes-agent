@@ -199,6 +199,18 @@ async def clear_app_telemetry(slug: str, request: Request, profile: Optional[str
     return await _scoped(profile, run)
 
 
+@router.get("/api/apps-sessions")
+async def app_sessions_index(request: Request, profile: Optional[str] = None):
+    """Which app started each ``apps`` session: lets Desktop group the sidebar's Apps section by app."""
+    _require_token(request)
+
+    def run():
+        home, _ = _current_home_and_name()
+        return apps_jobs.session_index(home)
+
+    return await _scoped(profile, run)
+
+
 @router.get("/api/apps/{slug}/jobs")
 async def list_app_jobs(slug: str, request: Request, profile: Optional[str] = None, limit: int = 20):
     """Recent session requests an app made, for the owner's Desktop view."""

@@ -105,6 +105,16 @@ export function listAppJobs(slug: string, profile?: null | string): Promise<{ jo
   return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/jobs') })
 }
 
+/** Which app started each `apps` session (from the apps' request records). */
+export interface AppSessionIndex {
+  apps: Record<string, { icon: string; name: string }>
+  sessions: Record<string, string>
+}
+
+export function getAppSessionIndex(profile?: null | string): Promise<AppSessionIndex> {
+  return hermesApi({ ...profileScoped(profile), path: '/api/apps-sessions' })
+}
+
 export function clearAppTelemetry(slug: string, profile?: null | string): Promise<{ removed_files: number }> {
   return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/telemetry/clear'), method: 'POST' })
 }
