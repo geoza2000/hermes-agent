@@ -44,6 +44,10 @@ hermes apps publish invoices --note "Add VAT selector"
 hermes apps rollback invoices 3
 hermes apps set invoices --visibility public
 hermes apps insights invoices --days 7 --json
+hermes apps agent invoices --prompt "Extract supplier, number, date, VAT and total." --skill invoice-processing
+hermes apps data set invoices records --json '[]'
+hermes apps data get invoices records
+hermes apps jobs invoices
 ```
 
 ## Quick Reference
@@ -56,6 +60,10 @@ hermes apps insights invoices --days 7 --json
 | Custom usage event | `hermes.track('invoice_created', { lines: 3 })`, no personal values |
 | Name a control in telemetry | `data-track="new-invoice"` on buttons and fields |
 | Viewer type | `hermes.viewer` is `owner` or `public`; data is owner-only |
+| Hand work to Hermes | `const job = await hermes.session.run({ prompt, files, context }, { onUpdate })` |
+| Show progress | `onUpdate(job)` gets `job.status` and `job.steps`; `job.result.text` / `job.result.json` when done |
+| Questions | Default: `hermes.ui.question` shows a form. Custom: pass `onQuestion: async q => ({ q0: 'answer' })` |
+| Continue the conversation | `await job.send('Also mark it paid')` then `await job.wait()` |
 
 The runtime (`window.hermes`) is injected into every HTML page automatically. Do not add it yourself.
 
@@ -80,6 +88,26 @@ The runtime (`window.hermes`) is injected into every HTML page automatically. Do
 8. **Never change visibility on your own.** Public apps are reachable by anyone with the link. Set
    `--visibility public` only when the user explicitly asks, and remind them their app data stays private.
 
+### Apps that hand work to Hermes
+
+Use this when the app needs Hermes itself: reading a photo or PDF, judging, asking, or using the
+user's connections (for example invoices filed in Drive). The app is the interface, a skill holds
+the rules, and the Hermes session does the work.
+
+1. Put the rules in a skill (create or reuse one), then set the app's session setup:
+   `hermes apps agent <slug> --prompt "<what every request is for>" --skill <skill>`.
+2. In the app, call `hermes.session.run({ prompt, files, context })`. Files come from an
+   `<input type="file" accept="image/*,application/pdf" capture>` or drag and drop.
+3. Each request runs as its own Hermes session tagged `apps`. Desktop groups these under **Apps**
+   in the sidebar, and the app's page lists them with an Open session link.
+4. The session asks with the `clarify` tool; the question appears in the app and the answer
+   returns to the same turn. Unanswered questions time out after 30 minutes.
+5. For structured results, the prompt asks for a final fenced `json` block; the app reads
+   `job.result.json`. Either the app saves it with `hermes.data.set`, or the session saves it with
+   `hermes apps data set`. Pick one owner per record to avoid double writes.
+6. Sessions are owner-only and unattended: dangerous commands are refused unless the owner set
+   `approvals.unattended_mode: approve`. At most two requests per app run at once.
+
 ### Improving from usage
 
 - **In chat, immediately:** if the user asks for something the app should do, offer the concrete app
@@ -99,7 +127,9 @@ The runtime (`window.hermes`) is injected into every HTML page automatically. Do
   that on to make your job easier, and never put personal data into `hermes.track` properties.
 - External scripts and CDNs work, but the app must still function offline from its own files when
   possible. Prefer small inline code over large frameworks.
-- Public viewers get `hermes.data` errors by design. Design public apps to work without saved data.
+- Public viewers get `hermes.data` and `hermes.session` errors by design. Design public apps to work without them.
+- `hermes.session` needs Hermes running on the owner's machine. Show the job status, and a clear
+  message when a request fails, instead of assuming it finished.
 
 ## Verification
 

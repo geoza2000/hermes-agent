@@ -172,7 +172,9 @@ def _is_cron_approval_context() -> bool:
 # Programmatic/unattended platforms: no human can answer a prompt and the adapter has no ``send_exec_approval`` /
 # ``/approve`` surface. Governed by ``approvals.unattended_mode`` (default deny), mirroring ``cron_mode`` — never an
 # interactive round-trip that blocks for the full timeout with nobody to answer.
-_UNATTENDED_APPROVAL_PLATFORMS = frozenset({"webhook", "msgraph_webhook", "api_server"})
+# ``apps``: Hermes Apps sessions are started by an app's interface (often with user-supplied files),
+# run in a detached process, and route only clarify questions back to the app.
+_UNATTENDED_APPROVAL_PLATFORMS = frozenset({"webhook", "msgraph_webhook", "api_server", "apps"})
 
 
 def _is_unattended_platform_approval_context() -> bool:

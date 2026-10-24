@@ -13,6 +13,7 @@ Public viewers never get the app-data API, so publishing an app never exposes th
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -21,7 +22,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 
-from hermes_cli import apps_links, apps_store, apps_telemetry, apps_web
+from hermes_cli import apps_jobs, apps_links, apps_store, apps_telemetry, apps_web
 from hermes_cli.web_deps import late
 from hermes_cli.web_routers._common import config_scoped_to_thread, destructive_profile
 
@@ -194,6 +195,20 @@ async def clear_app_telemetry(slug: str, request: Request, profile: Optional[str
     def run():
         home, _ = _current_home_and_name()
         return {"removed_files": apps_telemetry.clear_events(home, slug)}
+
+    return await _scoped(profile, run)
+
+
+@router.get("/api/apps/{slug}/jobs")
+async def list_app_jobs(slug: str, request: Request, profile: Optional[str] = None, limit: int = 20):
+    """Recent session requests an app made, for the owner's Desktop view."""
+    _require_token(request)
+
+    def run():
+        home, _ = _current_home_and_name()
+        apps_store.load_manifest(home, slug)
+        jobs = apps_jobs.list_jobs(home, slug, limit=max(1, min(limit, 50)))
+        return {"jobs": [apps_jobs.public_view(j) for j in jobs]}
 
     return await _scoped(profile, run)
 
@@ -392,6 +407,119 @@ async def cap_data_delete(token: str, key: str, request: Request):
     return await _data(_cap_view(token), key, request, "delete")
 
 
+# ── app → Hermes session handoff (owner viewers only) ─────────────────────────────────────────
+
+_UPLOAD_MAX_BYTES = apps_jobs.TOTAL_FILES_MAX_BYTES + 1024 * 1024
+
+
+def _json_or_error(text: str):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise apps_store.AppError("Expected JSON.") from exc
+
+
+async def _json_body(request: Request) -> dict:
+    body = _json_or_error((await request.body()).decode("utf-8", "replace") or "{}")
+    if not isinstance(body, dict):
+        raise apps_store.AppError("Expected a JSON object.")
+    return body
+
+
+async def _session_request(request: Request) -> tuple[str, list[tuple[str, bytes]], object]:
+    """``prompt``/``context``/``files`` from multipart (files attached) or a JSON text body."""
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > _UPLOAD_MAX_BYTES:
+        raise apps_store.AppError("The request is too large.")
+    if not request.headers.get("content-type", "").startswith("multipart/form-data"):
+        body = await _json_body(request)
+        return str(body.get("prompt") or ""), [], body.get("context")
+    form = await request.form(max_files=apps_jobs.MAX_FILES, max_fields=8)
+    files = [(upload.filename or "", await upload.read())
+             for upload in form.getlist("files") if not isinstance(upload, str)]
+    raw_context, prompt = form.get("context"), form.get("prompt")
+    context = _json_or_error(raw_context) if isinstance(raw_context, str) and raw_context else None
+    return (prompt if isinstance(prompt, str) else ""), files, context
+
+
+def _launch(view: _View, job_id: str) -> dict:
+    """Start the worker; a spawn failure is recorded on the job so the app sees why."""
+    from hermes_cli.apps_job_launcher import launch_job_worker
+
+    try:
+        launch_job_worker(view.home, view.profile, view.slug, job_id)
+    except OSError as exc:
+        job = apps_jobs.load_job(view.home, view.slug, job_id)
+        job.update(status="failed", error=f"Could not start Hermes: {exc}")
+        apps_jobs.save_job(view.home, view.slug, job)
+    return apps_jobs.load_job(view.home, view.slug, job_id)
+
+
+def _session_denied(view: Optional[_View]) -> Optional[Response]:
+    if view is None:
+        return _not_found()
+    if view.viewer != "owner":
+        return apps_web.json_response({"error": "Hermes sessions are only available to the app's owner."}, status=403)
+    return None
+
+
+async def _session_op(view: _View, request: Request, op: str, job_id: str) -> dict:
+    home, slug = view.home, view.slug
+    if op == "get":
+        return await asyncio.to_thread(apps_jobs.load_job, home, slug, job_id)
+    if op == "answer":
+        answers = (await _json_body(request)).get("answers")
+        return await asyncio.to_thread(apps_jobs.submit_answer, home, slug, job_id, answers)
+    if op == "create":
+        prompt, files, context = await _session_request(request)
+        job = await asyncio.to_thread(apps_jobs.create_job, home, slug, prompt, files=files, context=context)
+    else:
+        message = (await _json_body(request)).get("message")
+        job = await asyncio.to_thread(apps_jobs.queue_message, home, slug, job_id, message)
+    return await asyncio.to_thread(_launch, view, job["id"])
+
+
+async def _sessions(view: Optional[_View], request: Request, op: str, job_id: str = "") -> Response:
+    denied = _session_denied(view)
+    if denied is not None or view is None:
+        return denied or _not_found()
+    try:
+        if op == "list":
+            jobs = await asyncio.to_thread(apps_jobs.list_jobs, view.home, view.slug)
+            return apps_web.json_response({"sessions": [apps_jobs.public_view(j) for j in jobs]})
+        job = await _session_op(view, request, op, job_id)
+    except apps_store.AppNotFound as exc:
+        return apps_web.json_response({"error": str(exc)}, status=404)
+    except apps_store.AppError as exc:
+        return apps_web.json_response({"error": str(exc)}, status=429 if "in progress" in str(exc) else 400)
+    return apps_web.json_response({"session": apps_jobs.public_view(job)})
+
+
+@router.get("/apps-cap/{token}/_hermes/sessions")
+async def cap_sessions_list(token: str, request: Request):
+    return await _sessions(_cap_view(token), request, "list")
+
+
+@router.post("/apps-cap/{token}/_hermes/sessions")
+async def cap_sessions_create(token: str, request: Request):
+    return await _sessions(_cap_view(token), request, "create")
+
+
+@router.get("/apps-cap/{token}/_hermes/sessions/{job_id}")
+async def cap_session_get(token: str, job_id: str, request: Request):
+    return await _sessions(_cap_view(token), request, "get", job_id)
+
+
+@router.post("/apps-cap/{token}/_hermes/sessions/{job_id}/answer")
+async def cap_session_answer(token: str, job_id: str, request: Request):
+    return await _sessions(_cap_view(token), request, "answer", job_id)
+
+
+@router.post("/apps-cap/{token}/_hermes/sessions/{job_id}/message")
+async def cap_session_message(token: str, job_id: str, request: Request):
+    return await _sessions(_cap_view(token), request, "message", job_id)
+
+
 # After the literal data routes: ``_hermes/{name}`` would otherwise swallow ``_hermes/data``.
 @router.get("/apps-cap/{token}/_hermes/{name}")
 async def cap_runtime(token: str, name: str):
@@ -421,6 +549,11 @@ async def public_data(profile: str, slug: str, rest: str):
 @router.api_route("/apps-public/{profile}/{slug}/_hermes/data-delete/{key}", methods=["POST"])
 async def public_data_delete(profile: str, slug: str, key: str):
     return _data_denied(_public_view(profile, slug)) or _not_found()
+
+
+@router.api_route("/apps-public/{profile}/{slug}/_hermes/sessions{rest:path}", methods=["GET", "POST"])
+async def public_sessions(profile: str, slug: str, rest: str):
+    return _session_denied(_public_view(profile, slug)) or _not_found()
 
 
 @router.get("/apps-public/{profile}/{slug}/_hermes/{name}")

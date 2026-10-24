@@ -53,6 +53,24 @@ export interface AppLink {
   mode: 'live' | 'preview'
 }
 
+export type AppJobStatus = 'done' | 'failed' | 'needs_input' | 'queued' | 'running'
+
+/** One request an app handed to Hermes (`hermes_cli/apps_jobs.py` public view). */
+export interface AppJob {
+  id: string
+  status: AppJobStatus
+  created_at: number
+  updated_at: number
+  prompt: string
+  files: { name: string; size: number }[]
+  session_id: null | string
+  steps: { at: number; text: string }[]
+  question: null | { ask_id: string; questions: { qid: string; question: string }[] }
+  result: null | { text: string; json: unknown }
+  error: null | string
+  turns: number
+}
+
 export interface AppSettingsPatch {
   name?: string
   icon?: string
@@ -81,6 +99,10 @@ export function rollbackApp(slug: string, version: number, profile?: null | stri
 
 export function mintAppLink(slug: string, options: { preview?: boolean } = {}, profile?: null | string): Promise<AppLink> {
   return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/link'), method: 'POST', body: { preview: Boolean(options.preview) } })
+}
+
+export function listAppJobs(slug: string, profile?: null | string): Promise<{ jobs: AppJob[] }> {
+  return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/jobs') })
 }
 
 export function clearAppTelemetry(slug: string, profile?: null | string): Promise<{ removed_files: number }> {

@@ -16,7 +16,7 @@ import type { ComponentPropsWithoutRef, ComponentType, SVGProps } from 'react'
 import { forwardRef, memo } from 'react'
 
 import { AvatarChip } from '@/components/ui/avatar-chip'
-import { Globe, Link as LinkIcon, MessageSquareText } from '@/lib/icons'
+import { AppWindow, Globe, Link as LinkIcon, MessageSquareText } from '@/lib/icons'
 
 // ---------------------------------------------------------------------------
 // Photon brand icon — three diagonal rounded bars (the Photon logo mark).
@@ -67,6 +67,7 @@ const PLATFORM_ICONS: Record<string, PlatformIconSpec> = {
   sms: { Icon: MessageSquareText, color: '#F43F5E', kind: 'generic' },
   webhook: { Icon: LinkIcon, color: '#71717A', kind: 'generic' },
   api_server: { Icon: Globe, color: '#64748B', kind: 'generic' },
+  apps: { Icon: AppWindow, color: '#1540B1', kind: 'generic' },
   weixin: { Icon: SiWechat, color: '#07C160', kind: 'brand' },
   qqbot: { Icon: SiQq, color: '#EB1923', kind: 'brand' },
   yuanbao: { Icon: SiBilibili, color: '#FB7299', kind: 'brand' }

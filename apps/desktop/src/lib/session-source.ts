@@ -3,6 +3,7 @@ import { normalize } from '@/lib/text'
 const SOURCE_LABELS: Record<string, string> = {
   acp: 'ACP',
   api_server: 'API',
+  apps: 'Apps',
   bluebubbles: 'iMessage',
   cli: 'CLI',
   codex: 'Codex',
@@ -63,6 +64,8 @@ const LOCAL_SOURCE_IDS = new Set(LOCAL_SESSION_SOURCE_IDS)
 // section (fetched separately from local recents). Mirrors the gateway platform
 // adapters; keep in sync with PLATFORM_ICONS in app/messaging/platform-icon.tsx.
 export const MESSAGING_SESSION_SOURCE_IDS = [
+  // Hermes Apps sessions (an app handed work to Hermes) group like a platform.
+  'apps',
   'telegram',
   'discord',
   'slack',

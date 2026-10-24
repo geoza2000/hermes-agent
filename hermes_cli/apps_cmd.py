@@ -50,6 +50,31 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_insights.add_argument("slug")
     p_insights.add_argument("--days", type=int, default=7)
     p_insights.add_argument("--json", action="store_true")
+    p_agent = sub.add_parser("agent", help="Set the session setup an app's requests run with")
+    p_agent.add_argument("slug")
+    p_agent.add_argument("--prompt", help="Instructions every request from this app starts with")
+    p_agent.add_argument("--skill", action="append", dest="skills", help="Skill to preload (repeatable)")
+    p_agent.add_argument("--toolsets", help="Comma-separated toolsets (default: your CLI toolsets)")
+    p_agent.add_argument("--clear", action="store_true", help="Remove the app's session setup")
+    p_data = sub.add_parser("data", help="Read or write an app's saved records")
+    data_sub = p_data.add_subparsers(dest="data_action")
+    data_sub.add_parser("keys", help="List record keys").add_argument("slug")
+    for name in ("get", "delete"):
+        sp = data_sub.add_parser(name, help=f"{name.capitalize()} one record")
+        sp.add_argument("slug")
+        sp.add_argument("key")
+    p_dset = data_sub.add_parser("set", help="Store one record (JSON)")
+    p_dset.add_argument("slug")
+    p_dset.add_argument("key")
+    source = p_dset.add_mutually_exclusive_group(required=True)
+    source.add_argument("--json", dest="value", help="JSON value")
+    source.add_argument("--file", help="Path to a JSON file")
+    p_jobs = sub.add_parser("jobs", help="List session requests an app made")
+    p_jobs.add_argument("slug")
+    p_jobs.add_argument("--json", action="store_true")
+    p_run = sub.add_parser("run-job", help=argparse.SUPPRESS)
+    p_run.add_argument("slug")
+    p_run.add_argument("job_id")
     parser.set_defaults(_apps_parser=parser)
     return parser
 
@@ -138,7 +163,76 @@ def _cmd_insights(args) -> int:
     return 0
 
 
+def _cmd_agent(args) -> int:
+    if args.clear:
+        apps_store.update_app(_home(), args.slug, {"agent": None})
+        print(f"Cleared the session setup for {args.slug}.")
+        return 0
+    current = apps_store.load_manifest(_home(), args.slug).get("agent") or {}
+    agent = {
+        "prompt": args.prompt if args.prompt is not None else current.get("prompt", ""),
+        "skills": args.skills if args.skills is not None else current.get("skills", []),
+        "toolsets": ([t.strip() for t in args.toolsets.split(",") if t.strip()] if args.toolsets is not None
+                     else current.get("toolsets")),
+    }
+    manifest = apps_store.update_app(_home(), args.slug, {"agent": agent})
+    print(json.dumps(manifest["agent"], indent=2, ensure_ascii=False))
+    return 0
+
+
+def _data_keys(home, args) -> None:
+    print("\n".join(apps_store.data_keys(home, args.slug)))
+
+
+def _data_get(home, args) -> None:
+    print(json.dumps(apps_store.data_get(home, args.slug, args.key), indent=2, ensure_ascii=False))
+
+
+def _data_delete(home, args) -> None:
+    print("deleted" if apps_store.data_delete(home, args.slug, args.key) else "not found")
+
+
+def _data_set(home, args) -> None:
+    from pathlib import Path
+
+    raw = Path(args.file).read_bytes() if args.file else args.value.encode("utf-8")
+    apps_store.data_put(home, args.slug, args.key, raw)
+    print(f"Saved {args.slug}/{args.key}.")
+
+
+_DATA_ACTIONS = {"keys": _data_keys, "get": _data_get, "delete": _data_delete, "set": _data_set}
+
+
+def _cmd_data(args) -> int:
+    handler = _DATA_ACTIONS.get(getattr(args, "data_action", None) or "")
+    if handler is None:
+        print("usage: hermes apps data {keys,get,set,delete} ...", file=sys.stderr)
+        return 2
+    handler(_home(), args)
+    return 0
+
+
+def _cmd_jobs(args) -> int:
+    from hermes_cli import apps_jobs
+
+    jobs = apps_jobs.list_jobs(_home(), args.slug)
+    if args.json:
+        print(json.dumps([apps_jobs.public_view(j) for j in jobs], indent=2, ensure_ascii=False))
+        return 0
+    for job in jobs:
+        prompt = " ".join((job.get("prompt") or "").split())[:50]
+        print(f"{job['id']}  {job['status']:<11} {job.get('session_id') or '-':<28} {prompt}")
+    return 0
+
+
+def _cmd_run_job(args) -> int:
+    from hermes_cli.apps_job_runner import run_job
+
+    return run_job(_home(), args.slug, args.job_id)
+
+
 _ACTIONS = {
+    "agent": _cmd_agent, "data": _cmd_data, "jobs": _cmd_jobs, "run-job": _cmd_run_job,
     "list": _cmd_list, "ls": _cmd_list, "create": _cmd_create, "show": _cmd_show, "path": _cmd_path,
     "publish": _cmd_publish, "rollback": _cmd_rollback, "set": _cmd_set, "insights": _cmd_insights,
 }

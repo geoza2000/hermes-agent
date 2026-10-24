@@ -510,10 +510,19 @@ def _run_agent(
     resume: Optional[str] = None,
     reasoning: object = None,
     ledger: bool = False,
+    platform: str = "cli",
+    clarify_callback=None,
+    instructions: Optional[str] = None,
+    on_agent=None,
 ) -> tuple[str, dict]:
     """Build an AIAgent exactly like a normal CLI chat turn, run one conversation, and return
     ``(final_response, run_result)``. Imports are local to keep CLI startup cheap. *ledger* (set when
-    ``--usage-file`` is requested) attaches this run's auxiliary usage to the result."""
+    ``--usage-file`` is requested) attaches this run's auxiliary usage to the result.
+
+    Hermes Apps reuse this builder for app-initiated sessions: *platform* tags the session's
+    source, *clarify_callback* replaces the "no user here" default with the app's own question
+    surface, *instructions* are appended to the ephemeral prompt beside preloaded skills, and
+    *on_agent* receives the constructed agent to attach progress callbacks."""
     from hermes_cli.config import load_config
     from hermes_cli.runtime_provider import resolve_runtime_with_fallback
     from hermes_cli.tools_config import _get_platform_tools
@@ -569,6 +578,7 @@ def _run_agent(
     ensure_mcp_discovery_before_agent_build(logger=logging.getLogger(__name__), single_query=True)
 
     skills_prompt = _build_preloaded_skills_prompt(skills)
+    ephemeral_prompt = "\n\n".join(part for part in (skills_prompt, instructions) if part) or None
 
     # The try spans agent construction (not just ``chat``) so the store is always closed, even when
     # ``AIAgent(...)`` raises — the one-shot exit path hard-exits via os._exit and skips finalizers.
@@ -583,24 +593,26 @@ def _run_agent(
             model=choice.model,
             enabled_toolsets=toolsets_list,
             quiet_mode=True,
-            platform="cli",
+            platform=platform,
             session_db=session_db,
             session_id=resume_sid,
             credential_pool=runtime.get("credential_pool"),
             fallback_model=get_fallback_chain(cfg) or None,
             # The resolved provider's request body (a custom entry's extra_body), as `hermes chat` passes it.
             request_overrides=runtime.get("request_overrides"),
-            ephemeral_system_prompt=skills_prompt,
+            ephemeral_system_prompt=ephemeral_prompt,
             reasoning_config=reasoning_config,
             # The only interactive callback wired: no user sits at a terminal. Sudo prompts gate on
             # HERMES_INTERACTIVE (never set), hook approval via HERMES_ACCEPT_HOOKS=1, dangerous
             # commands via HERMES_YOLO_MODE=1, skill secret capture degrades gracefully.
-            clarify_callback=_oneshot_clarify_callback,
+            clarify_callback=clarify_callback or _oneshot_clarify_callback,
         )
         # Belt-and-braces: no streaming display callbacks may bypass our stdout capture.
         agent.suppress_status_output = True
         agent.stream_delta_callback = None
         agent.tool_gen_callback = None
+        if on_agent is not None:
+            on_agent(agent)
 
         aux_before = _auxiliary_usage(session_db, resume_sid) if ledger else {}
         # Relay keys the root conversation to the id at turn entry; compression may rotate

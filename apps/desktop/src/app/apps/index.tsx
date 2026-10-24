@@ -5,10 +5,12 @@ import { useNavigate, useSearchParams } from 'react-router'
 
 import {
   type AppInsights,
+  type AppJob,
   clearAppTelemetry,
   gatewayUrl,
   getApp,
   type HermesAppSummary,
+  listAppJobs,
   listApps,
   mintAppLink,
   rollbackApp,
@@ -27,6 +29,7 @@ import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $connection } from '@/store/session'
 
+import { openSessionFromPicker } from '../open-session'
 import { PageSearchShell } from '../page-search-shell'
 import { NEW_CHAT_ROUTE } from '../routes'
 
@@ -333,6 +336,7 @@ function AppDetail({ copy, onBack, slug }: { copy: AppsCopy; onBack: () => void;
           )}
         </div>
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+          <RunsCard copy={copy} profile={profile} slug={app.slug} />
           <SharingCard app={app} baseUrl={baseUrl} copy={copy} profile={profile} run={run} />
           <UsageCard app={app} copy={copy} insights={detail.data?.insights} profile={profile} run={run} />
           <VersionsCard app={app} copy={copy} profile={profile} run={run} />
@@ -503,6 +507,58 @@ function VersionsCard({ app, copy, profile, run }: CardProps) {
           </li>
         ))}
       </ul>
+    </Card>
+  )
+}
+
+const ACTIVE_JOB = new Set<AppJob['status']>(['needs_input', 'queued', 'running'])
+
+/** Requests this app handed to Hermes. Each runs as an `apps` session, grouped under Apps in the sidebar. */
+function RunsCard({ copy, profile, slug }: { copy: AppsCopy; profile: null | string; slug: string }) {
+  const navigate = useNavigate()
+
+  const jobs = useQuery({
+    queryFn: () => listAppJobs(slug, profile),
+    queryKey: ['app-jobs', profile, slug],
+    refetchInterval: query => (query.state.data?.jobs.some(job => ACTIVE_JOB.has(job.status)) ? 3000 : false)
+  })
+
+  const rows = jobs.data?.jobs.slice(0, 6) ?? []
+
+  return (
+    <Card title={copy.runs}>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{copy.noRuns}</p>
+      ) : (
+        <ul className="space-y-2 text-xs">
+          {rows.map(job => (
+            <li className="flex items-start justify-between gap-2" data-job={job.id} key={job.id}>
+              <div className="min-w-0">
+                <div className="truncate font-medium">
+                  {job.prompt || job.files.map(file => file.name).join(', ') || job.id}
+                </div>
+                <div className="truncate text-(--ui-text-tertiary)">
+                  {job.error || job.steps.at(-1)?.text || new Date(job.created_at * 1000).toLocaleString()}
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <Pill tone={job.status === 'needs_input' || job.status === 'failed' ? 'accent' : 'muted'}>
+                  {copy.runStatus[job.status]}
+                </Pill>
+                {job.session_id && (
+                  <Button
+                    onClick={() => void openSessionFromPicker(job.session_id!, navigate)}
+                    size="xs"
+                    variant="text"
+                  >
+                    {copy.openSession}
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   )
 }

@@ -50,6 +50,10 @@ export interface AppsCopy {
   current: string
   restore: string
   restored: (n: number) => string
+  runs: string
+  noRuns: string
+  openSession: string
+  runStatus: Record<'done' | 'failed' | 'needs_input' | 'queued' | 'running', string>
   saveFailed: string
 }
 
@@ -99,6 +103,10 @@ const en: AppsCopy = {
   current: 'Current',
   restore: 'Restore',
   restored: n => `Now serving v${n}`,
+  runs: 'Hermes sessions',
+  noRuns: 'This app hasn’t sent anything to Hermes yet.',
+  openSession: 'Open session',
+  runStatus: { queued: 'Queued', running: 'Working', needs_input: 'Needs your answer', done: 'Done', failed: 'Failed' },
   saveFailed: 'Could not save the change'
 }
 
@@ -148,6 +156,10 @@ const de: AppsCopy = {
   current: 'Aktuell',
   restore: 'Wiederherstellen',
   restored: n => `Jetzt läuft v${n}`,
+  runs: 'Hermes-Sitzungen',
+  noRuns: 'Diese App hat Hermes noch nichts gesendet.',
+  openSession: 'Sitzung öffnen',
+  runStatus: { queued: 'In Warteschlange', running: 'In Arbeit', needs_input: 'Wartet auf Antwort', done: 'Fertig', failed: 'Fehlgeschlagen' },
   saveFailed: 'Änderung konnte nicht gespeichert werden'
 }
 
@@ -197,6 +209,10 @@ const es: AppsCopy = {
   current: 'Actual',
   restore: 'Restaurar',
   restored: n => `Ahora se sirve la v${n}`,
+  runs: 'Sesiones de Hermes',
+  noRuns: 'Esta app aún no ha enviado nada a Hermes.',
+  openSession: 'Abrir sesión',
+  runStatus: { queued: 'En cola', running: 'Trabajando', needs_input: 'Necesita tu respuesta', done: 'Hecho', failed: 'Falló' },
   saveFailed: 'No se pudo guardar el cambio'
 }
 
@@ -246,6 +262,10 @@ const fr: AppsCopy = {
   current: 'Actuelle',
   restore: 'Restaurer',
   restored: n => `La v${n} est maintenant servie`,
+  runs: 'Sessions Hermes',
+  noRuns: 'Cette app n’a encore rien envoyé à Hermes.',
+  openSession: 'Ouvrir la session',
+  runStatus: { queued: 'En attente', running: 'En cours', needs_input: 'Attend votre réponse', done: 'Terminé', failed: 'Échec' },
   saveFailed: 'Impossible d’enregistrer la modification'
 }
 
@@ -295,6 +315,10 @@ const ja: AppsCopy = {
   current: '現在',
   restore: '復元',
   restored: n => `v${n} を配信中`,
+  runs: 'Hermes セッション',
+  noRuns: 'このアプリはまだ Hermes に何も送信していません。',
+  openSession: 'セッションを開く',
+  runStatus: { queued: '待機中', running: '処理中', needs_input: '回答待ち', done: '完了', failed: '失敗' },
   saveFailed: '変更を保存できませんでした'
 }
 
@@ -344,6 +368,10 @@ const ru: AppsCopy = {
   current: 'Текущая',
   restore: 'Вернуть',
   restored: n => `Сейчас работает v${n}`,
+  runs: 'Сеансы Hermes',
+  noRuns: 'Это приложение ещё ничего не отправляло в Hermes.',
+  openSession: 'Открыть сеанс',
+  runStatus: { queued: 'В очереди', running: 'В работе', needs_input: 'Нужен ваш ответ', done: 'Готово', failed: 'Ошибка' },
   saveFailed: 'Не удалось сохранить изменение'
 }
 
@@ -393,6 +421,10 @@ const zh: AppsCopy = {
   current: '当前',
   restore: '恢复',
   restored: n => `当前运行 v${n}`,
+  runs: 'Hermes 会话',
+  noRuns: '此应用还没有向 Hermes 发送任何内容。',
+  openSession: '打开会话',
+  runStatus: { queued: '排队中', running: '处理中', needs_input: '需要你的回答', done: '完成', failed: '失败' },
   saveFailed: '无法保存更改'
 }
 
@@ -442,6 +474,10 @@ const zhHant: AppsCopy = {
   current: '目前',
   restore: '還原',
   restored: n => `目前執行 v${n}`,
+  runs: 'Hermes 工作階段',
+  noRuns: '此應用程式尚未向 Hermes 傳送任何內容。',
+  openSession: '開啟工作階段',
+  runStatus: { queued: '排隊中', running: '處理中', needs_input: '需要你的回答', done: '完成', failed: '失敗' },
   saveFailed: '無法儲存變更'
 }
 
@@ -491,6 +527,10 @@ const ar: AppsCopy = {
   current: 'الحالي',
   restore: 'استعادة',
   restored: n => `يتم الآن تشغيل v${n}`,
+  runs: 'جلسات Hermes',
+  noRuns: 'لم يرسل هذا التطبيق أي شيء إلى Hermes بعد.',
+  openSession: 'فتح الجلسة',
+  runStatus: { queued: 'في الانتظار', running: 'قيد العمل', needs_input: 'بانتظار إجابتك', done: 'تم', failed: 'فشل' },
   saveFailed: 'تعذر حفظ التغيير'
 }
 

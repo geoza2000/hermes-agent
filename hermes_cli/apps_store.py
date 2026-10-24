@@ -36,6 +36,8 @@ _NOTE_MAX = 400
 _DATA_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 DATA_VALUE_MAX_BYTES = 256 * 1024
 DATA_MAX_KEYS = 200
+AGENT_PROMPT_MAX = 8000
+_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,79}$")
 
 _STARTER_HTML = """<!doctype html>
 <html lang="en">
@@ -179,7 +181,7 @@ def list_apps(home: Path) -> list[dict[str, Any]]:
 def update_app(home: Path, slug: str, changes: dict[str, Any]) -> dict[str, Any]:
     """Apply user-editable manifest changes. Unknown keys are rejected rather than stored."""
     manifest = load_manifest(home, slug)
-    allowed = {"name", "icon", "description", "visibility", "telemetry"}
+    allowed = {"name", "icon", "description", "visibility", "telemetry", "agent"}
     unknown = set(changes) - allowed
     if unknown:
         raise AppError(f"Unsupported app settings: {', '.join(sorted(unknown))}.")
@@ -195,7 +197,33 @@ def update_app(home: Path, slug: str, changes: dict[str, Any]) -> dict[str, Any]
         manifest["visibility"] = changes["visibility"]
     if "telemetry" in changes:
         manifest["telemetry"] = _merge_telemetry(manifest.get("telemetry") or {}, changes["telemetry"])
+    if "agent" in changes:
+        manifest["agent"] = _clean_agent(changes["agent"])
     return _save_manifest(home, manifest)
+
+
+def _clean_names(value: Any, field: str, limit: int) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list) or len(value) > limit:
+        raise AppError(f"Agent {field} must be a list of at most {limit} names.")
+    names = [str(v).strip() for v in value if str(v).strip()]
+    if any(not _AGENT_NAME_RE.match(n) for n in names):
+        raise AppError(f"Agent {field} contain an invalid name.")
+    return list(dict.fromkeys(names))
+
+
+def _clean_agent(agent: Any) -> Optional[dict[str, Any]]:
+    """The session setup an app's requests run with: instructions, preloaded skills, toolsets."""
+    if agent is None:
+        return None
+    if not isinstance(agent, dict) or set(agent) - {"prompt", "skills", "toolsets"}:
+        raise AppError("Agent settings accept only 'prompt', 'skills' and 'toolsets'.")
+    return {
+        "prompt": _clean_text(agent.get("prompt"), "Agent prompt", AGENT_PROMPT_MAX),
+        "skills": _clean_names(agent.get("skills"), "skills", 10),
+        "toolsets": _clean_names(agent.get("toolsets"), "toolsets", 20) or None,
+    }
 
 
 def _merge_telemetry(current: dict[str, Any], incoming: Any) -> dict[str, Any]:
