@@ -17,10 +17,12 @@ export function installMediaPermissions(
       return
     }
 
+    // Chromium requests every Web MIDI grant as `midiSysex`, `{sysex: false}` included, so the
+    // request name cannot separate sysex: the trusted main-frame proof is this hook's whole boundary.
     if (permission === 'midi' || permission === 'midiSysex') {
       callback(
         isSongwritingMidiPermission(
-          permission,
+          'midi',
           webContents ? { type: webContents.getType(), url: webContents.getURL() } : null,
           details,
           rendererUrl

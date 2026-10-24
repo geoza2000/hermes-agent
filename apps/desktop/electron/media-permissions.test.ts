@@ -54,12 +54,24 @@ describe('installed default-session permission hooks', () => {
     ['opaque frame', contents(), 'midi', { ...mainFrame, requestingUrl: 'about:blank' }, false],
     ['external frame', contents(), 'midi', { ...mainFrame, requestingUrl: 'https://evil.example/' }, false],
     ['other app path', contents('window', `${renderer}artifact.html`), 'midi', mainFrame, false],
-    ['other frame path', contents(), 'midi', { ...mainFrame, requestingUrl: `${renderer}artifact.html` }, false],
-    ['sysex', contents(), 'midiSysex', mainFrame, false]
+    ['other frame path', contents(), 'midi', { ...mainFrame, requestingUrl: `${renderer}artifact.html` }, false]
   ])('applies the same MIDI boundary in request and check: %s', (_name, requester, permission, details, allowed) => {
     const hooks = handlers()
     expect(hooks.request(requester, permission, details)).toBe(allowed)
     expect(hooks.check(requester, permission, details)).toBe(allowed)
+  })
+
+  // Electron 44 sends a non-sysex requestMIDIAccess to the request hook as `midiSysex`.
+  it.each([
+    ['trusted main frame', contents(), mainFrame, true],
+    ['own-origin iframe', contents(), { ...mainFrame, isMainFrame: false }, false],
+    ['guest', contents('webview'), mainFrame, false],
+    ['external frame', contents(), { ...mainFrame, requestingUrl: 'https://evil.example/' }, false],
+    ['other app path', contents('window', `${renderer}artifact.html`), mainFrame, false]
+  ])('grants the request hook\'s midiSysex only to the same main frame: %s', (_name, requester, details, allowed) => {
+    const hooks = handlers()
+    expect(hooks.request(requester, 'midiSysex', details)).toBe(allowed)
+    expect(hooks.check(requester, 'midiSysex', details)).toBe(false)
   })
 
   it('allows the packaged renderer main frame in both hooks', () => {
@@ -68,6 +80,7 @@ describe('installed default-session permission hooks', () => {
     const requester = contents('window', url)
     const details = { isMainFrame: true, requestingUrl: url }
     expect(hooks.request(requester, 'midi', details)).toBe(true)
+    expect(hooks.request(requester, 'midiSysex', details)).toBe(true)
     expect(hooks.check(requester, 'midi', details)).toBe(true)
   })
 
