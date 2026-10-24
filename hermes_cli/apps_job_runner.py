@@ -193,4 +193,15 @@ def run_job(home: Path, slug: str, job_id: str, *, run_turn: Optional[RunTurn] =
         return 0
     state.update("Done", status="done", session_id=session_id, question=None,
                  result=apps_jobs.parse_result(final))
+    _after_session_review(home, slug)
     return 0
+
+
+def _after_session_review(home: Path, slug: str) -> None:
+    """Apps set to review "after each session" queue one review when a request finishes."""
+    try:
+        from hermes_cli.apps_improvement_schedule import queue_after_session
+
+        queue_after_session(home, slug)
+    except Exception:  # health: allow BLE001 -- the request already succeeded; a missed review is logged
+        logging.warning("apps: could not queue the after-session review for %s", slug, exc_info=True)

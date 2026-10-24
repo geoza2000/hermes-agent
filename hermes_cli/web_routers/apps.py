@@ -22,7 +22,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 
-from hermes_cli import apps_jobs, apps_links, apps_store, apps_telemetry, apps_web
+from hermes_cli import apps_jobs, apps_links, apps_revisions, apps_store, apps_telemetry, apps_web
 from hermes_cli.web_deps import late
 from hermes_cli.web_routers._common import config_scoped_to_thread, destructive_profile
 
@@ -109,6 +109,17 @@ async def list_apps(request: Request, profile: Optional[str] = None):
     return await _scoped(profile, run)
 
 
+def _schedule_reviews(home: Path) -> None:
+    try:
+        from hermes_cli.apps_improvement_schedule import sync_schedule
+
+        sync_schedule(home)
+    except Exception:  # health: allow BLE001 -- creation succeeded; the next settings save reconciles
+        import logging
+
+        logging.getLogger(__name__).warning("apps: could not schedule reviews", exc_info=True)
+
+
 @router.post("/api/apps")
 async def create_app(request: Request, profile: Optional[str] = None):
     _require_token(request)
@@ -119,7 +130,9 @@ async def create_app(request: Request, profile: Optional[str] = None):
 
     def run():
         home, owner = _current_home_and_name()
-        return {"app": _summary(owner, apps_store.create_app(home, slug, name))}
+        app = apps_store.create_app(home, slug, name)
+        _schedule_reviews(home)
+        return {"app": _summary(owner, app)}
 
     return await _scoped(profile, run)
 
@@ -157,6 +170,20 @@ async def update_app(slug: str, request: Request, profile: Optional[str] = None)
     return await _scoped(profile, run)
 
 
+@router.post("/api/apps/{slug}/review")
+async def review_app(slug: str, request: Request, profile: Optional[str] = None):
+    _require_token(request)
+    profile = destructive_profile(profile, "POST /api/apps/{slug}/review")
+
+    def run():
+        home, name = _current_home_and_name()
+        revision = apps_revisions.review(home, slug)
+        token, expires = apps_links.mint(home, name, slug, mode="preview", revision=revision)
+        return {"revision": revision, "path": f"{CAP_PREFIX}{token}/", "expires_at": expires}
+
+    return await _scoped(profile, run)
+
+
 @router.post("/api/apps/{slug}/publish")
 async def publish_app(slug: str, request: Request, profile: Optional[str] = None):
     _require_token(request)
@@ -164,7 +191,7 @@ async def publish_app(slug: str, request: Request, profile: Optional[str] = None
 
     def run():
         home, name = _current_home_and_name()
-        return {"app": _summary(name, apps_store.publish(home, slug, note=str(body.get("note") or "")))}
+        return {"app": _summary(name, apps_revisions.publish_review(home, slug, body.get("revision"), note=str(body.get("note") or "")))}
 
     return await _scoped(profile, run)
 
@@ -276,6 +303,7 @@ class _View:
     base: str
     viewer: str  # "owner" | "public"
     preview: bool
+    revision: Optional[str] = None
 
     @property
     def data_enabled(self) -> bool:
@@ -293,7 +321,7 @@ def _cap_view(token: str) -> Optional[_View]:
     if verified is None:
         return None
     link, home = verified
-    return _View(home, link.profile, link.slug, f"{CAP_PREFIX}{token}/", "owner", link.preview)
+    return _View(home, link.profile, link.slug, f"{CAP_PREFIX}{token}/", "owner", link.preview, link.revision)
 
 
 def _public_view(profile: str, slug: str) -> Optional[_View]:
@@ -318,7 +346,8 @@ def _serve(view: Optional[_View], rel_path: str) -> Response:
         return _not_found()
     try:
         manifest = apps_store.load_manifest(view.home, view.slug)
-        folder = apps_store.content_dir(view.home, view.slug, preview=view.preview)
+        folder = (apps_revisions.snapshot_dir(view.home, view.slug, view.revision) if view.revision
+                  else apps_store.content_dir(view.home, view.slug, preview=view.preview))
     except apps_store.AppError:
         return _not_found()
     if folder is None:

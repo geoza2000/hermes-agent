@@ -242,10 +242,17 @@ def _draft_has_entry(draft: Path) -> bool:
 
 
 def publish(home: Path, slug: str, *, note: str = "") -> dict[str, Any]:
-    """Snapshot ``draft/`` as the next version and make it current."""
+    """Explicit CLI publication snapshots and checks the current draft."""
+    from hermes_cli import apps_revisions
+
+    revision = apps_revisions.review(home, slug)
+    return apps_revisions.publish_review(home, slug, revision, note=note)
+
+
+def _publish_snapshot(home: Path, slug: str, draft: Path, *, note: str = "") -> dict[str, Any]:
+    """Called under the app changes lock with an immutable reviewed source."""
     manifest = load_manifest(home, slug)
     root = app_dir(home, slug)
-    draft = root / "draft"
     if not _draft_has_entry(draft):
         raise AppError(f"App '{slug}' has no draft/index.html to publish.")
     note = _clean_text(note, "Note", _NOTE_MAX)

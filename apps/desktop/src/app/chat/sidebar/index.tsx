@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 
 import { useAppsSidebarSection } from '@/app/apps/sidebar-section'
-import { buildMessagingSections } from '@/app/chat/sidebar/messaging-sections'
+import { useMessagingSections } from '@/app/chat/sidebar/messaging-sections'
 import { PlatformAvatar } from '@/app/messaging/platform-icon'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
@@ -1313,10 +1313,7 @@ export function ChatSidebar({
     }
   }
 
-  const messagingGroups = useMemo(
-    () => buildMessagingSections(visibleMessagingSessions, isPinnedSession, messagingPlatformTotals, messagingTruncated, messagingProfile),
-    [visibleMessagingSessions, messagingPlatformTotals, messagingTruncated, isPinnedSession, messagingProfile]
-  )
+  const messagingGroups = useMessagingSections(visibleMessagingSessions, isPinnedSession, messagingPlatformTotals, messagingTruncated, messagingProfile)
 
   const appsSection = useAppsSidebarSection(messagingGroups, HEADER_ACTION_BTN)
 

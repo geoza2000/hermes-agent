@@ -36,6 +36,7 @@ class AppLink:
     slug: str
     expires_at: int
     mode: str
+    revision: Optional[str] = None
 
     @property
     def preview(self) -> bool:
@@ -83,14 +84,14 @@ def rotate_key(home: Path) -> None:
     _write_key(home)
 
 
-def mint(home: Path, profile: str, slug: str, *, ttl: int = DEFAULT_TTL_SECONDS, mode: str = "live") -> tuple[str, int]:
+def mint(home: Path, profile: str, slug: str, *, ttl: int = DEFAULT_TTL_SECONDS, mode: str = "live", revision: Optional[str] = None) -> tuple[str, int]:
     if not SLUG_RE.match(slug):
         raise ValueError("invalid app id")
     if mode not in _MODES:
         raise ValueError("invalid link mode")
     ttl = max(60, min(int(ttl), MAX_TTL_SECONDS))
     expires = int(time.time()) + ttl
-    payload = _b64(json.dumps({"p": profile, "s": slug, "e": expires, "m": mode}, separators=(",", ":")).encode())
+    payload = _b64(json.dumps({"p": profile, "s": slug, "e": expires, "m": mode, "r": revision}, separators=(",", ":")).encode())
     key = _signing_key(home)
     signature = _b64(hmac.new(key, payload.encode("ascii"), hashlib.sha256).digest())
     return f"{payload}.{signature}", expires
@@ -121,4 +122,11 @@ def verify(token: str, home_for_profile: Callable[[str], Optional[Path]]) -> Opt
     expected = _b64(hmac.new(key, payload.encode("ascii"), hashlib.sha256).digest())
     if not hmac.compare_digest(expected, signature):
         return None
-    return AppLink(profile=profile, slug=slug, expires_at=expires, mode=mode), home
+    revision = claims.get("r")
+    if revision is not None:
+        from hermes_cli.apps_revisions import snapshot_dir
+        try:
+            snapshot_dir(home, slug, revision)
+        except ValueError:
+            return None
+    return AppLink(profile=profile, slug=slug, expires_at=expires, mode=mode, revision=revision), home

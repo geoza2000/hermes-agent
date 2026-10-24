@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
 import { messagingTotalsKey } from '@/store/profile'
 import type { SessionInfo } from '@/types/hermes'
@@ -70,4 +72,18 @@ export function buildMessagingSections(
       }
     })
     .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
+}
+
+/** Memoized {@link buildMessagingSections} for the sidebar. */
+export function useMessagingSections(
+  sessions: SessionInfo[],
+  isPinnedSession: (session: SessionInfo) => boolean,
+  totals: Record<string, number>,
+  truncated: boolean,
+  profile: Parameters<typeof messagingTotalsKey>[0]
+): MessagingSection[] {
+  return useMemo(
+    () => buildMessagingSections(sessions, isPinnedSession, totals, truncated, profile),
+    [sessions, isPinnedSession, totals, truncated, profile]
+  )
 }

@@ -115,6 +115,89 @@ export function getAppSessionIndex(profile?: null | string): Promise<AppSessionI
   return hermesApi({ ...profileScoped(profile), path: '/api/apps-sessions' })
 }
 
+// ── Improvements (hermes_cli/web_routers/apps_improvements.py) ────────────────────────────────
+
+export type ImprovementSchedule = 'after-session' | 'daily' | 'manual' | 'weekly'
+
+export interface ImprovementSettings {
+  auto_apply: boolean
+  enabled: boolean
+  schedule: ImprovementSchedule
+  token_budget: number
+}
+
+export interface ImprovementSuggestion {
+  edit: { after: string; before: string; path: string }
+  evidence: Record<string, number>
+  id: string
+  reason: string
+  status: 'applied' | 'applying' | 'dismissed' | 'pending'
+  title: string
+}
+
+export interface ImprovementRun {
+  at: number
+  budget: number
+  error?: string
+  id: string
+  status: string
+  total_tokens: number
+}
+
+export interface AppImprovementState {
+  override: null | Partial<ImprovementSettings>
+  request?: null | { at: number; id: string; status: string }
+  runs: ImprovementRun[]
+  settings: ImprovementSettings
+  suggestions: ImprovementSuggestion[]
+}
+
+type SettingsInput = Pick<ImprovementSettings, 'enabled' | 'schedule' | 'token_budget'>
+
+export function getImprovementDefaults(profile?: null | string): Promise<{ settings: ImprovementSettings }> {
+  return hermesApi({ ...profileScoped(profile), path: '/api/apps-improvements' })
+}
+
+export function saveImprovementDefaults(value: SettingsInput, profile?: null | string): Promise<{ settings: ImprovementSettings }> {
+  return hermesApi({ ...profileScoped(profile), path: '/api/apps-improvements', method: 'PUT', body: value })
+}
+
+export function getAppImprovements(slug: string, profile?: null | string): Promise<AppImprovementState> {
+  return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/improvements') })
+}
+
+/** `null` drops the app's own setting so it follows the defaults again. */
+export function saveAppImprovements(slug: string, value: null | SettingsInput, profile?: null | string): Promise<AppImprovementState> {
+  return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/improvements'), method: 'PUT', body: value ?? { inherit: true } })
+}
+
+export function runAppReview(slug: string, profile?: null | string): Promise<{ request: { id: string; status: string } }> {
+  return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/improvements/run'), method: 'POST', body: {} })
+}
+
+export function decideSuggestion(
+  slug: string,
+  suggestionId: string,
+  decision: 'approve' | 'dismiss',
+  profile?: null | string
+): Promise<Omit<AppImprovementState, 'settings'>> {
+  return hermesApi({
+    ...profileScoped(profile),
+    path: appPath(slug, `/improvements/${encodeURIComponent(suggestionId)}/${decision}`),
+    method: 'POST',
+    body: {}
+  })
+}
+
+/** Freeze the current draft; publishing then accepts only this exact revision. */
+export function reviewAppDraft(slug: string, profile?: null | string): Promise<{ expires_at: number; path: string; revision: string }> {
+  return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/review'), method: 'POST', body: {} })
+}
+
+export function publishAppRevision(slug: string, revision: string, note: string, profile?: null | string): Promise<{ app: HermesAppSummary }> {
+  return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/publish'), method: 'POST', body: { note, revision } })
+}
+
 export function clearAppTelemetry(slug: string, profile?: null | string): Promise<{ removed_files: number }> {
   return hermesApi({ ...profileScoped(profile), path: appPath(slug, '/telemetry/clear'), method: 'POST' })
 }

@@ -72,6 +72,15 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_jobs = sub.add_parser("jobs", help="List session requests an app made")
     p_jobs.add_argument("slug")
     p_jobs.add_argument("--json", action="store_true")
+    p_review = sub.add_parser("review", help="Run one improvement review now (proposes up to 3 suggestions)")
+    p_review.add_argument("slug")
+    p_review.add_argument("--request-id", help=argparse.SUPPRESS)
+    p_improve = sub.add_parser("improvements", help="Show or set improvement review settings")
+    p_improve.add_argument("slug", nargs="?", help="App id; omit for the defaults every app inherits")
+    p_improve.add_argument("--schedule", choices=("weekly", "daily", "after-session", "manual"))
+    p_improve.add_argument("--token-budget", type=int, dest="token_budget")
+    p_improve.add_argument("--enabled", choices=("on", "off"))
+    p_improve.add_argument("--inherit", action="store_true", help="Drop this app's override")
     p_run = sub.add_parser("run-job", help=argparse.SUPPRESS)
     p_run.add_argument("slug")
     p_run.add_argument("job_id")
@@ -107,6 +116,7 @@ def _cmd_list(args) -> int:
 
 def _cmd_create(args) -> int:
     manifest = apps_store.create_app(_home(), args.slug, args.name, icon=args.icon, description=args.description)
+    _schedule_reviews()
     print(f"Created {manifest['slug']}. Edit the draft in {apps_store.app_dir(_home(), args.slug) / 'draft'}")
     return 0
 
@@ -225,6 +235,55 @@ def _cmd_jobs(args) -> int:
     return 0
 
 
+def _schedule_reviews() -> None:
+    """New apps inherit the review schedule. Best effort: a cron hiccup must not fail creation."""
+    try:
+        from hermes_cli.apps_improvement_schedule import sync_schedule
+
+        sync_schedule(_home())
+    except Exception as exc:  # health: allow BLE001 -- surfaced, creation already succeeded
+        print(f"Note: could not schedule improvement reviews yet ({exc}).", file=sys.stderr)
+
+
+def _cmd_review(args) -> int:
+    from hermes_cli.apps_improvements import load_state, run_request
+
+    code = run_request(_home(), args.slug, args.request_id)
+    state = load_state(_home(), args.slug)
+    if not args.request_id:
+        run = state["runs"][-1] if state.get("runs") else {"status": "skipped"}
+        print(json.dumps({"run": run, "pending": [s for s in state["suggestions"] if s["status"] == "pending"]},
+                         indent=2, ensure_ascii=False))
+    return code
+
+
+def _cmd_improvements(args) -> int:
+    from hermes_cli.apps_improvement_settings import save_settings, settings
+
+    changes = {k: v for k, v in (("schedule", args.schedule), ("token_budget", args.token_budget)) if v is not None}
+    if args.enabled is not None:
+        changes["enabled"] = args.enabled == "on"
+    if args.inherit:
+        if not args.slug:
+            print("--inherit needs an app id.", file=sys.stderr)
+            return 2
+        result = save_settings(_home(), None, slug=args.slug)
+    elif changes:
+        if args.slug:
+            changes = {**_override(args.slug), **changes}
+        result = save_settings(_home(), changes, slug=args.slug)
+    else:
+        result = settings(_home(), args.slug)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def _override(slug: str) -> dict:
+    from hermes_cli.apps_improvements import load_state
+
+    return load_state(_home(), slug).get("override") or {}
+
+
 def _cmd_run_job(args) -> int:
     from hermes_cli.apps_job_runner import run_job
 
@@ -233,6 +292,7 @@ def _cmd_run_job(args) -> int:
 
 _ACTIONS = {
     "agent": _cmd_agent, "data": _cmd_data, "jobs": _cmd_jobs, "run-job": _cmd_run_job,
+    "review": _cmd_review, "improvements": _cmd_improvements,
     "list": _cmd_list, "ls": _cmd_list, "create": _cmd_create, "show": _cmd_show, "path": _cmd_path,
     "publish": _cmd_publish, "rollback": _cmd_rollback, "set": _cmd_set, "insights": _cmd_insights,
 }

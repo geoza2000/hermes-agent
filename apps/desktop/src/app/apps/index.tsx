@@ -34,6 +34,7 @@ import { PageSearchShell } from '../page-search-shell'
 import { NEW_CHAT_ROUTE } from '../routes'
 
 import { type AppsCopy, useAppsCopy } from './copy'
+import { AppImprovementsCard, ImprovementDefaults, InstallCard } from './improvements'
 
 // Links last 12 h server-side; refresh well before that so a long-open page never shows a dead frame.
 const LINK_STALE_MS = 6 * 60 * 60 * 1000
@@ -88,6 +89,7 @@ export function AppsView() {
       searchPlaceholder={copy.search}
       searchValue={query}
     >
+      {Boolean(apps.data?.apps.length) && <ImprovementDefaults profile={profile} />}
       <AppsGallery
         apps={visible}
         copy={copy}
@@ -336,6 +338,8 @@ function AppDetail({ copy, onBack, slug }: { copy: AppsCopy; onBack: () => void;
           )}
         </div>
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+          <AppImprovementsCard profile={profile} slug={app.slug} />
+          <InstallCard profile={profile} published={Boolean(app.current_version)} slug={app.slug} />
           <RunsCard copy={copy} profile={profile} slug={app.slug} />
           {/* Apps are personal for now: the public switch only appears to turn an already-public app back off. */}
           {app.visibility === 'public' && (

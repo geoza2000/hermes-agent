@@ -40,3 +40,17 @@ it("creates a draft then offers dismissible installation guidance", async () => 
   await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Maybe later")!.click());
   expect(container.textContent).not.toContain("Maybe later");
 });
+
+
+it("suggests installing a published app once, and remembers Not now", async () => {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", { configurable: true, value: {
+    getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) } });
+  fetchJSON.mockResolvedValue({ profile: "personal", apps: [{ slug: "invoices", name: "Invoices", icon: "🧾", current_version: 1, entry_path: "/apps/personal/invoices/" }] });
+  await act(async () => root.render(<AppsPage />));
+  expect(container.textContent).toContain("Add it to your home screen or Dock");
+  await act(async () => Array.from(container.querySelectorAll("button")).find(b => b.textContent === "Not now")!.click());
+  expect(container.textContent).not.toContain("Add it to your home screen or Dock");
+  await act(async () => root.render(<AppsPage key="again" />));
+  expect(container.textContent).not.toContain("Add it to your home screen or Dock");
+});

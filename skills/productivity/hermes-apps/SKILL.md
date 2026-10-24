@@ -116,7 +116,12 @@ the rules, and the Hermes session does the work.
 
 - **In chat, immediately:** if the user asks for something the app should do, offer the concrete app
   change right then (one sentence, then edit the draft if they agree).
-- **On review (weekly by default):** run `hermes apps insights <slug> --days 7 --json` for each app.
+- **Scheduled reviews are built in.** The owner sets them on the Apps page (Desktop or web) or with
+  `hermes apps improvements [<slug>] --schedule weekly|daily|after-session|manual --token-budget N`.
+  Each run makes one tool-free model call, stores at most three evidence-backed suggestions, and
+  never edits the app. Approving a suggestion edits only the draft; publishing still needs a
+  reviewed revision. `hermes apps review <slug>` runs one now.
+- **On review in chat:** run `hermes apps insights <slug> --days 7 --json` for each app.
   Look for repeated manual work (the same field edited after every create), unused features, errors
   and slow actions. Propose at most three concrete, low-risk changes per app, each with the evidence
   ("you changed the due date on 9 of 10 invoices"). Do not apply them until the user approves.

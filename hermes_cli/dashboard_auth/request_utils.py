@@ -39,6 +39,9 @@ def is_safe_next_path(path: str) -> bool:
     values, the auth routes themselves, and every ``/api`` path."""
     if not path.startswith("/") or path.startswith("//"):
         return False
+    # Browsers treat backslashes as slashes in HTTP(S) URLs: /\evil becomes //evil.
+    if "\\" in path:
+        return False
     if any(path == p or path.startswith(p) for p in _NEXT_DENY_PREFIXES):
         return False
     return not (path == "/api" or path.startswith("/api/"))
